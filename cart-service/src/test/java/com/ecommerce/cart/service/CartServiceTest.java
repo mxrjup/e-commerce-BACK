@@ -123,4 +123,12 @@ class CartServiceTest {
         //Check if the guest card is correctly removed after the merge
         assertTrue(cartRepository.findBySessionTokenWithItems("guest-token-1").isEmpty());
     }
+
+       @Test
+        @DisplayName("Merge cart with null userId throws IllegalArgumentException")
+        void testMergeCart_NullUserIdThrows() {
+            assertThrows(IllegalArgumentException.class, () ->
+                    cartService.mergeCart(null, "guest-token-1"));
+        }
+
 }
