@@ -100,4 +100,27 @@ class CartServiceTest {
         assertTrue(cleared.getItems().isEmpty());
         assertEquals(0, cleared.getTotalItems());
     }
+
+    @Test
+    @DisplayName("Merge guest cart into user cart : sums duplicate items quantity and remove guest card")
+    void testMergeCart(){
+
+        ///Add items to logged in user cart
+        cartService.addItem(1L, null, new AddCartItemRequest(100L, 2));
+
+        ///Add items to guest cart
+        cartService.addItem(null, "guest-token-1", new AddCartItemRequest(100L, 3));
+        cartService.addItem(null, "guest-token-1", new AddCartItemRequest(200L, 1));
+
+        CartResponse mergedCart = cartService.mergeCart(1L, "guest-token-1");
+
+        //Check if we have 2 differents products in our cart (5 articles with id=1L + 1 article with id=200L -> 2 differents type of articles)
+        assertEquals(2, mergedCart.getItems().size());
+
+        //Check the number of product in our cart
+        assertEquals(6, mergedCart.getTotalItems());
+
+        //Check if the guest card is correctly removed after the merge
+        assertTrue(cartRepository.findBySessionTokenWithItems("guest-token-1").isEmpty());
+    }
 }
