@@ -104,4 +104,45 @@ public class CartService {
         Cart savedCart = cartRepository.save(cart);
         return CartResponse.fromEntity(savedCart);
     }
+
+
+    public CartResponse mergeCart(Long userId, String sessionToken){
+        if(sessionToken == null || sessionToken.trim().isEmpty()){
+            return getCart(userId, null);
+        }
+
+          Optional<Cart> guestCartOpt = cartRepository.findBySessionTokenWithItems(sessionToken.trim());
+
+          if(guestCartOpt.isEmpty()){
+            return getCart(userId, null);
+          }
+
+          Cart guestCart = guestCartOpt.get();
+          Cart userCart = getOrCreateCart(userId, null);
+
+
+          for(CartItem guestItem : guestCart.getItems()){
+
+            Optional<CartItem> existingUserItem = userCart.getItems().stream().filter(
+                ui -> ui.getVariantId().equals(guestItem.getVariantId())
+            ).findFirst();
+
+            if(existingUserItem.isPresent()){
+
+                CartItem userItem = existingUserItem.get();
+                userItem.setQuantity(userItem.getQuantity()+ guestItem.getQuantity());
+            }else{
+                userCart.addItem(new CartItem(userCart, guestItem.getVariantId(), guestItem.getQuantity()));
+            }
+
+        
+
+          }
+
+        cartRepository.delete(guestCart);
+        Cart savedCart = cartRepository.save(userCart);
+
+        return CartResponse.fromEntity(savedCart);
+
+    }
 }
