@@ -84,13 +84,13 @@ public class CartController {
 
     @PostMapping("/merge")
     public ResponseEntity<CartResponse> mergeCart(
-         @RequestHeader(value = HEADER_USER_ID, required = false) Long userId,
+         @RequestHeader(value = HEADER_USER_ID, required = true) Long userId,
          @RequestHeader(value = HEADER_SESSION_TOKEN, required = false) String sessionToken
     ){
 
     CartResponse response = cartService.mergeCart(userId, sessionToken);
 
-    return ResponseEntity.ok(response);
+    return buildResponseWithSessionHeader(response, HttpStatus.OK);
 
     }
 }
