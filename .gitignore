@@ -37,3 +37,8 @@ target/
 ### OS files ###
 .DS_Store
 Thumbs.db
+
+### Secrets et configuration locale ###
+.env
+.env.*
+!.env.example
