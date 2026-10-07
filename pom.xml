@@ -25,6 +25,7 @@
       package racine com.ecommerce.<domaine>. Voir README.md.
     -->
     <modules>
+        <module>common-lib</module>
         <module>cart-service</module>
     </modules>
 
