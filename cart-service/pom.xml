@@ -16,6 +16,13 @@
     <description>Microservice Panier (Shopping Cart Service)</description>
 
     <dependencies>
+        <!-- Librairie commune : contrat d'erreur HTTP partage -->
+        <dependency>
+            <groupId>com.ecommerce</groupId>
+            <artifactId>common-lib</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
         <!-- Spring Boot Starter Web -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
