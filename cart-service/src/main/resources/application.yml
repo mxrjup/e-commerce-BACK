@@ -20,6 +20,21 @@ spring:
     show-sql: false
     open-in-view: false
 
+  kafka:
+    bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:localhost:29092}
+    consumer:
+      group-id: cart-service
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: "*"
+
+app:
+  kafka:
+    topics:
+      order-paid: ${KAFKA_TOPIC_ORDER_PAID:order.paid}
+
 ---
 spring:
   config:

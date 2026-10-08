@@ -10,6 +10,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.transaction.annotation.Transactional;
+import java.util.Optional;
+
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -124,11 +126,35 @@ class CartServiceTest {
         assertTrue(cartRepository.findBySessionTokenWithItems("guest-token-1").isEmpty());
     }
 
-       @Test
-        @DisplayName("Merge cart with null userId throws IllegalArgumentException")
-        void testMergeCart_NullUserIdThrows() {
+    @Test
+    @DisplayName("Merge cart with null userId throws IllegalArgumentException")
+    void testMergeCart_NullUserIdThrows() {
             assertThrows(IllegalArgumentException.class, () ->
                     cartService.mergeCart(null, "guest-token-1"));
-        }
+    }
 
+    @Test
+    @DisplayName("clearCartOnOrderPaid clears user cart and is idempotent")
+    void testClearCartOnOrderPaid_UserSuccessAndIdempotent() {
+        Long userId = 1l;
+
+        cartService.addItem(userId, null, new AddCartItemRequest(100L, 2));
+
+        assertFalse(cartService.getOrCreateCart(userId, null).getItems().isEmpty());
+
+        cartService.clearCartOnOrderPaid(userId, null);
+
+        Optional<Cart> cartOpt = cartRepository.findByUserIdWithItems(userId);
+
+        assertTrue(cartOpt.isPresent());
+        assertTrue(cartOpt.get().getItems().isEmpty());
+
+        assertDoesNotThrow(() -> cartService.clearCartOnOrderPaid(userId, null));
+
+        //Check if after the second call, the cart is still existing
+        Optional<Cart> cartOptAfterSecondCall = cartRepository.findByUserIdWithItems(userId);
+        assertTrue(cartOptAfterSecondCall.isPresent());
+        assertTrue(cartOptAfterSecondCall.get().getItems().isEmpty());
+
+    }
 }
