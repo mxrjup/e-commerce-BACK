@@ -106,7 +106,6 @@ public class CartService {
 
 
     public CartResponse mergeCart(Long userId, String sessionToken){
-
          if (userId == null) {
             throw new IllegalArgumentException("User ID must not be null for cart merge");
         }
@@ -138,15 +137,32 @@ public class CartService {
             }else{
                 userCart.addItem(new CartItem(userCart, guestItem.getVariantId(), guestItem.getQuantity()));
             }
-
-        
-
           }
 
         cartRepository.delete(guestCart);
         Cart savedCart = cartRepository.save(userCart);
 
         return CartResponse.fromEntity(savedCart);
+    }
 
+    public void clearCartOnOrderPaid(Long userId, String sessionToken){
+        if (userId == null && (sessionToken == null || sessionToken.trim().isEmpty())) {
+            return;
+        }
+
+        if(userId != null){
+            cartRepository.findByUserIdWithItems(userId).ifPresent(cart -> {
+                cart.clearItems();
+                cartRepository.save(cart);
+            }
+            
+            
+            );
+        }else{
+            cartRepository.findBySessionTokenWithItems(sessionToken.trim()).ifPresent(cart -> {
+                cart.clearItems();
+                cartRepository.save(cart);
+            });
+        }
     }
 }
