@@ -36,7 +36,6 @@ public class CartService {
         return cartRepository.save(new Cart(null, newSessionToken));
     }
 
-    @Transactional(readOnly = true)
     public CartResponse getCart(Long userId, String sessionToken) {
         Cart cart = getOrCreateCart(userId, sessionToken);
         return CartResponse.fromEntity(cart);
