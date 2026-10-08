@@ -25,6 +25,51 @@ base en mémoire :
 ./mvnw -pl cart-service spring-boot:run -Dspring-boot.run.profiles=local-h2
 ```
 
+## Stack locale (Docker Compose)
+
+`compose.yaml` démarre les dépendances dont les services ont besoin :
+PostgreSQL, Keycloak et Kafka.
+
+```bash
+docker compose up -d              # les dépendances
+docker compose ps                 # état et santé des conteneurs
+docker compose logs -f keycloak   # les logs d'un service
+docker compose down               # arrêt, données conservées
+docker compose down -v            # arrêt + remise à zéro des données
+```
+
+| Service | Depuis l'hôte | Depuis le réseau Docker | Identifiants |
+|---|---|---|---|
+| PostgreSQL | `localhost:5432` | `postgres:5432` | `postgres` / `postgres` |
+| Keycloak | <http://localhost:8180> | `keycloak:8080` | `admin` / `admin` |
+| Kafka | `localhost:29092` | `kafka:9092` | — |
+
+Les valeurs par défaut suffisent : la stack démarre sans configuration. Pour en
+changer une, `cp .env.example .env` puis ajuster — le `.env` n'est jamais
+commité.
+
+**Une base de données par service.** `docker/postgres/init/01-databases.sql`
+les crée au premier démarrage (`keycloak` et `ecommerce_cart` aujourd'hui). Ce
+script ne s'exécute que sur un volume vide : après y avoir ajouté une base,
+`docker compose down -v && docker compose up -d`.
+
+**Les services applicatifs** sont déclarés derrière le profil `services` et
+démarrent avec `docker compose --profile services up -d`. Ils ont besoin des
+Dockerfiles de `D01` (#87), pas encore écrits : en attendant, lancer les
+services avec `./mvnw` (ci-dessus) en gardant les dépendances dans Docker.
+
+**Kafka** expose deux listeners : `kafka:9092` pour les conteneurs,
+`localhost:29092` pour un service lancé depuis l'IDE. Les topics se nomment
+avec des points comme séparateur (`catalogue.evenements`), jamais des
+underscores : mélanger les deux expose à des collisions de noms de métriques
+côté broker. La création explicite des topics arrive avec `K01` (#85) ; en
+attendant le broker les crée à la demande.
+
+**Keycloak** tourne en `start-dev` (HTTP en clair, pas de cache distribué) et
+persiste dans la base `keycloak`. Il importe au démarrage tout realm déposé
+dans `docker/keycloak/import/` : c'est là que `T03` (#83) mettra son export
+JSON.
+
 ## Modules
 
 | Module | Domaine | Issues | Port | État |
@@ -104,10 +149,9 @@ auto-configuration, sans annotation ni scan de composants côté service.
 
 | Sujet | Issue |
 |---|---|
-| Docker Compose local | `T02` #82 |
 | Keycloak (realm, clients, rôles) | `T03` #83 |
 | Gateway (routes, JWT, CORS) | `T04` #84 |
-| Kafka et DTO d'événements | `K01` #85, `K02` #86 |
+| Création des topics Kafka et DTO d'événements | `K01` #85, `K02` #86 |
 | Dockerfiles | `D01` #87 |
 | CI GitHub Actions | `D02` #53 |
 | Manifests Kubernetes | `D04` #88 |
