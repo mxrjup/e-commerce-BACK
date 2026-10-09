@@ -4,7 +4,6 @@ import com.ecommerce.order.entity.Order;
 import com.ecommerce.order.entity.OrderItem;
 import com.ecommerce.order.entity.OrderStatus;
 import com.ecommerce.order.repository.OrderRepository;
-import javax.crypto.extObjectInputStream;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -48,12 +47,12 @@ class OrderServiceTest {
 
         Order existingOrder = new Order();   
         existingOrder.setUserId(1L);
-        existingOrder.setOrderNumber("CMD" + currentYear + "-000042");
+        existingOrder.setOrderNumber("CMD-" + currentYear + "-000042");
         orderRepository.save(existingOrder);
         
         String nextOrderNumber = orderService.generateOrderNumber();
 
-        assertEquals("CMD" + currentYear + "-000043", nextOrderNumber);
+        assertEquals("CMD-" + currentYear + "-000043", nextOrderNumber);
     }
 
        @Test
@@ -85,7 +84,7 @@ class OrderServiceTest {
         Order persisted = fetchedOrder.get();
         assertEquals(1, persisted.getItems().size());
 
-        
+
         OrderItem persistedItem = persisted.getItems().get(0);
         assertEquals("Écran 27 pouces 144Hz - Noir", persistedItem.getDesignation());
         assertEquals(new BigDecimal("150.00"), persistedItem.getUnitPriceExclTax());

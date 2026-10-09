@@ -29,8 +29,14 @@ public interface OrderRepository extends JpaRepository<Order, Long>{
 
     /**
      * Find the last order made for a year (ex : prefix "CMD-2026-")
-     * In order to allow the order generator the increase the number
+     * In order to allow the order generator to increase the number
+     * SELECT * 
+        FROM commande 
+        WHERE numero LIKE 'CMD-2026-%' 
+        ORDER BY numero DESC 
+        LIMIT 1;
      */
-    Optional<Order> findNumberOfLastOrderByPrefix(String prefix);
+    Optional<Order> findFirstByOrderNumberStartingWithOrderByOrderNumberDesc(String prefix);
+
 
 }
