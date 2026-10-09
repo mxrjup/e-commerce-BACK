@@ -65,10 +65,105 @@ underscores : mélanger les deux expose à des collisions de noms de métriques
 côté broker. La création explicite des topics arrive avec `K01` (#85) ; en
 attendant le broker les crée à la demande.
 
-**Keycloak** tourne en `start-dev` (HTTP en clair, pas de cache distribué) et
-persiste dans la base `keycloak`. Il importe au démarrage tout realm déposé
-dans `docker/keycloak/import/` : c'est là que `T03` (#83) mettra son export
-JSON.
+**Keycloak** tourne en `start-dev` (HTTP en clair, pas de cache distribué),
+persiste dans la base `keycloak` et importe au démarrage le realm décrit dans
+`docker/keycloak/import/` — voir la section suivante.
+
+## Authentification (Keycloak)
+
+Le realm **`ecommerce`** est décrit par
+`docker/keycloak/import/ecommerce-realm.json` et importé au démarrage de la
+stack. Il se recrée entièrement avec
+`docker compose down -v && docker compose up -d`.
+
+### Clients
+
+| Client | Pour | Type | Flux | Redirections |
+|---|---|---|---|---|
+| `web-bo` | back-office (`T06` #11) | public | Authorization Code + **PKCE S256** | `http://localhost:5173/*` |
+| `mobile-app` | app Expo (`T05` #41) | public | Authorization Code + **PKCE S256** | `ecommerce://auth-callback`, `exp://*`, `http://localhost:8081/*` |
+
+Aucun des deux n'autorise le *Direct Access Grant* : aucun mot de passe ne
+transite en dehors du navigateur. Les deux ajoutent l'audience
+`ecommerce-api` dans le jeton d'accès, que la gateway (`T04` #84) pourra
+vérifier.
+
+Le client confidentiel à compte de service, pour l'Admin API de Keycloak,
+viendra avec `U04` (#91) : il porte un secret, il n'a donc rien à faire dans un
+fichier versionné.
+
+### Rôles
+
+| Rôle | Attribution | Donne accès à |
+|---|---|---|
+| `client` | **automatique** à la création du compte | API client : panier, commandes, profil |
+| `collaborator` | manuelle | back-office |
+| `admin` | manuelle, **inclut** `collaborator` | paramètres boutique, collaborateurs, panneau MCP |
+
+`client` est automatique parce qu'il fait partie du composite
+`default-roles-ecommerce`. C'est ce sur quoi `U01` s'appuie pour créer le
+compte applicatif au premier login.
+
+### Comptes de démonstration
+
+| Compte | Mot de passe | Rôles dans le jeton |
+|---|---|---|
+| `client.demo@ecommerce.test` | `demo1234` | `client` |
+| `admin.demo@ecommerce.test` | `demo1234` | `admin`, `collaborator`, `client` |
+
+Ils sont dans `ecommerce-users-0.json`, **séparé du realm exprès** : c'est un
+jeu de données local, et `D04` (#88) ne doit déployer que
+`ecommerce-realm.json`.
+
+### L'issuer, le piège à éviter
+
+`KEYCLOAK_FRONTEND_URL` (par défaut `http://localhost:8180`) fixe le `iss` des
+jetons. Un service qui tourne dans Docker ne peut pas joindre
+`localhost:8180` : il garde donc cette URL comme `issuer-uri` et va chercher
+les clés sur l'URL interne.
+
+```properties
+spring.security.oauth2.resourceserver.jwt.issuer-uri=http://localhost:8180/realms/ecommerce
+spring.security.oauth2.resourceserver.jwt.jwk-set-uri=http://keycloak:8080/realms/ecommerce/protocol/openid-connect/certs
+```
+
+Configurer les deux sur la même URL interne produit des jetons dont le `iss` ne
+correspond à rien de ce que voit le navigateur, et la validation échoue.
+
+### Google et Apple
+
+Les deux fournisseurs sont importés **désactivés et sans identifiants**. Pour
+en essayer un : renseigner le couple dans `.env`, relancer la stack, puis
+activer le fournisseur dans la console d'administration.
+
+- **Google** utilise le fournisseur intégré de Keycloak.
+- **Apple** n'a pas de fournisseur intégré : il est déclaré comme fournisseur
+  OIDC générique pointant sur `appleid.apple.com`. Deux conséquences à prévoir.
+  Son `clientSecret` n'est pas un secret statique mais **un JWT signé avec une
+  clé `.p8`, valable six mois au maximum**, donc à régénérer périodiquement —
+  il faudra une tâche dédiée avant la production. Et Apple ne transmet le nom
+  et l'e-mail qu'au tout premier consentement de l'utilisateur.
+
+Le parcours de première connexion par un fournisseur reste le flux Keycloak par
+défaut, qui **demande une confirmation de liaison** quand l'adresse existe
+déjà. Lier automatiquement sur un e-mail vérifié demande un flux
+d'authentification personnalisé : décision à prendre avec `U06` (#70).
+
+### Réexporter le realm après une modification dans la console
+
+```bash
+mkdir -p /tmp/kc-export && chmod 777 /tmp/kc-export
+docker compose run --rm --no-deps -v /tmp/kc-export:/tmp/export keycloak \
+  export --dir /tmp/export --realm ecommerce --users different_files
+```
+
+Un conteneur jetable, pas `docker compose exec` : dans le conteneur déjà
+démarré, l'export échoue sur le port d'administration déjà pris.
+
+Relire le résultat avant de remplacer le fichier versionné. L'export complet
+fait une quinzaine de fois la taille du fichier écrit à la main, **il contient
+les `clientSecret` des fournisseurs d'identité en clair**, et il remplace les
+mots de passe lisibles des comptes de démo par leurs empreintes.
 
 ## Modules
 
@@ -149,8 +244,8 @@ auto-configuration, sans annotation ni scan de composants côté service.
 
 | Sujet | Issue |
 |---|---|
-| Keycloak (realm, clients, rôles) | `T03` #83 |
 | Gateway (routes, JWT, CORS) | `T04` #84 |
+| Client confidentiel pour l'Admin API Keycloak | `U04` #91 |
 | Création des topics Kafka et DTO d'événements | `K01` #85, `K02` #86 |
 | Dockerfiles | `D01` #87 |
 | CI GitHub Actions | `D02` #53 |
