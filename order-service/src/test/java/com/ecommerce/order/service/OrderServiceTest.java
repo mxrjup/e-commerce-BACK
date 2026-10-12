@@ -67,7 +67,7 @@ class OrderServiceTest {
         assertEquals("CMD-" + currentYear + "-000043", nextOrderNumber);
     }
 
-       @Test
+    @Test
     @DisplayName("Check persistance item of an order")
     void testOrderAndOrderItemPersistence_PriceHistory() {
         

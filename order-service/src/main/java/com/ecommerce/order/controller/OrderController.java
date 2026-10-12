@@ -21,7 +21,7 @@ public class OrderController {
 
     private final OrderService orderService;
 
-         @PostMapping("/checkout")
+    @PostMapping("/checkout")
     public ResponseEntity<CheckoutResponse> checkout(
             @RequestHeader(value = HEADER_USER_ID, required = true) Long userId,
             @Valid @RequestBody CheckoutRequest request) {
