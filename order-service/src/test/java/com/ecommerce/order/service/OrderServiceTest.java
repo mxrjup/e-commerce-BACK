@@ -12,10 +12,19 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.Year;
 import java.util.Optional;
+import org.mockito.Answers;
+import org.springframework.boot.test.mock.mockito.MockBean;
+import com.ecommerce.order.dto.CheckoutItemRequest;
+import com.ecommerce.order.dto.CheckoutRequest;
+import com.ecommerce.order.dto.CheckoutResponse;
+import com.stripe.StripeClient;
+import com.stripe.model.checkout.Session;
+import com.stripe.param.checkout.SessionCreateParams;
+import java.util.List;
 import static org.junit.jupiter.api.Assertions.*;
-
-
-
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 @SpringBootTest
 @Transactional
@@ -25,6 +34,9 @@ class OrderServiceTest {
     private OrderService orderService;
     @Autowired
     private OrderRepository orderRepository;
+
+    @MockBean(answer = Answers.RETURNS_DEEP_STUBS)
+    private StripeClient stripeClient;
   
 
     @Test
@@ -55,7 +67,7 @@ class OrderServiceTest {
         assertEquals("CMD-" + currentYear + "-000043", nextOrderNumber);
     }
 
-       @Test
+    @Test
     @DisplayName("Check persistance item of an order")
     void testOrderAndOrderItemPersistence_PriceHistory() {
         
@@ -95,4 +107,42 @@ class OrderServiceTest {
         assertEquals(new BigDecimal("360.00"), persistedItem.getSubTotalInclTax());
     }
 
+    @Test
+    @DisplayName("Checkout calculates totals, shipping fee and returns Stripe session")
+    void testCheckout_CalculatesTotalsAndCreatesStripeSession() throws Exception {
+        Session mockSession = mock(Session.class);
+        when(mockSession.getId()).thenReturn("cs_test_123456");
+        when(mockSession.getUrl()).thenReturn("https://checkout.stripe.com/pay/cs_test_123456");
+        when(stripeClient.checkout().sessions().create(any(SessionCreateParams.class))).thenReturn(mockSession);
+
+        CheckoutItemRequest item1 = new CheckoutItemRequest(
+                10L,
+                "Souris gamer",
+                new BigDecimal("50.00"),
+                new BigDecimal("20.00"),
+                1
+        );
+        CheckoutItemRequest item2 = new CheckoutItemRequest(
+                20L,
+                "Tapis de souris",
+                new BigDecimal("20.00"),
+                new BigDecimal("20.00"),
+                1
+        );
+
+        CheckoutRequest request = new CheckoutRequest(
+                100L,
+                DeliveryMode.STANDARD,
+                List.of(item1, item2)
+        );
+
+        CheckoutResponse response = orderService.checkout(1L, request);
+
+        assertNotNull(response);
+        assertNotNull(response.getOrderId());
+        assertTrue(response.getOrderNumber().startsWith("CMD-"));
+        assertEquals(new BigDecimal("84.00"), response.getTotalInclTax());
+        assertEquals("cs_test_123456", response.getStripeSessionId());
+        assertEquals("https://checkout.stripe.com/pay/cs_test_123456", response.getStripeCheckoutUrl());
+    }
 } 
