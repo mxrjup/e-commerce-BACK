@@ -20,8 +20,20 @@ spring:
     show-sql: false
     open-in-view: false
 
+  kafka:
+    bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:localhost:29092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+
+app:
+  kafka:
+    topics:
+      order-paid: ${KAFKA_TOPIC_ORDER_PAID:order.paid}
+
 stripe:
   api-key: ${STRIPE_SECRET_KEY:sk_test_placeholder}
+  webhook-secret: ${STRIPE_WEBHOOK_SECRET:whsec_test_secret}
   success-url: ${STRIPE_SUCCESS_URL:http://localhost:3000/checkout/success?session_id={CHECKOUT_SESSION_ID}}
   cancel-url: ${STRIPE_CANCEL_URL:http://localhost:3000/checkout/cancel}
 
