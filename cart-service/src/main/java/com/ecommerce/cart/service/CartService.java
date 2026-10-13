@@ -36,7 +36,6 @@ public class CartService {
         return cartRepository.save(new Cart(null, newSessionToken));
     }
 
-    @Transactional(readOnly = true)
     public CartResponse getCart(Long userId, String sessionToken) {
         Cart cart = getOrCreateCart(userId, sessionToken);
         return CartResponse.fromEntity(cart);
@@ -107,8 +106,7 @@ public class CartService {
 
 
     public CartResponse mergeCart(Long userId, String sessionToken){
-
-         if (userId == null) {
+        if (userId == null) {
             throw new IllegalArgumentException("User ID must not be null for cart merge");
         }
         
@@ -116,17 +114,17 @@ public class CartService {
             return getCart(userId, null);
         }
 
-          Optional<Cart> guestCartOpt = cartRepository.findBySessionTokenWithItems(sessionToken.trim());
+        Optional<Cart> guestCartOpt = cartRepository.findBySessionTokenWithItems(sessionToken.trim());
 
-          if(guestCartOpt.isEmpty()){
+        if(guestCartOpt.isEmpty()){
             return getCart(userId, null);
-          }
+        }
 
-          Cart guestCart = guestCartOpt.get();
-          Cart userCart = getOrCreateCart(userId, null);
+        Cart guestCart = guestCartOpt.get();
+        Cart userCart = getOrCreateCart(userId, null);
 
 
-          for(CartItem guestItem : guestCart.getItems()){
+        for(CartItem guestItem : guestCart.getItems()){
 
             Optional<CartItem> existingUserItem = userCart.getItems().stream().filter(
                 ui -> ui.getVariantId().equals(guestItem.getVariantId())
@@ -139,15 +137,29 @@ public class CartService {
             }else{
                 userCart.addItem(new CartItem(userCart, guestItem.getVariantId(), guestItem.getQuantity()));
             }
-
-        
-
-          }
+        }
 
         cartRepository.delete(guestCart);
         Cart savedCart = cartRepository.save(userCart);
 
         return CartResponse.fromEntity(savedCart);
+    }
 
+    public void clearCartOnOrderPaid(Long userId, String sessionToken){
+        if (userId == null && (sessionToken == null || sessionToken.trim().isEmpty())) {
+            return;
+        }
+
+        if(userId != null){
+            cartRepository.findByUserIdWithItems(userId).ifPresent(cart -> {
+                cart.clearItems();
+                cartRepository.save(cart);
+            });
+        }else{
+            cartRepository.findBySessionTokenWithItems(sessionToken.trim()).ifPresent(cart -> {
+                cart.clearItems();
+                cartRepository.save(cart);
+            });
+        }
     }
 }
