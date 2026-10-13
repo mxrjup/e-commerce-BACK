@@ -38,5 +38,11 @@ public interface OrderRepository extends JpaRepository<Order, Long>{
      */
     Optional<Order> findFirstByOrderNumberStartingWithOrderByOrderNumberDesc(String prefix);
 
+    /**
+     * Find the order by its Stripe checkout session ID.
+     */
+
+    Optional<Order> findByStripeSessionId(String stripeSessionId);
+
 
 }
