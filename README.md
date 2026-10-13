@@ -78,14 +78,75 @@ JSON.
 | `cart-service` | Panier | `P*` | 8083 | en place |
 | `catalog-service` | Catalogue, stock, avis | `C*` | 8081 | à créer |
 | `user-service` | Utilisateurs, adresses, collaborateurs | `U*` | 8082 | à créer |
-| `order-service` | Commandes, paiement, livraison | `O*` | 8084 | à créer |
+| `order-service` | Commandes, paiement, livraison | `O*` | 8084 | en place |
 | `notification-service` | Notifications, alertes, emails | `N*` | 8085 | à créer |
 | `support-service` | SAV, tickets | `S*` | 8086 | à créer |
 | `mcp-service` | Serveur MCP | `M*` | 8087 | à créer |
-| `api-gateway` | Routage, validation JWT, CORS | `T04` | 8080 | à créer |
+| `api-gateway` | Routage, validation JWT, CORS | `T04` | 8080 | en place |
 
 Les ports sont réservés ici pour éviter les collisions en local et dans le
 Docker Compose.
+
+## Gateway : le point d'entrée de l'API
+
+Tout le trafic entre par `api-gateway`, sur le port 8080. Les services ne sont
+pas joignables depuis l'extérieur : les règles ci-dessous sont donc le seul
+endroit où une route devient publique, authentifiée ou réservée au back-office.
+
+### Routes et accès
+
+| Chemin | Service | Accès |
+|---|---|---|
+| `/api/cart/**` | `cart-service` | **public** — le panier accepte les invités (`P01`) |
+| `/api/orders/**` | `order-service` | jeton valide |
+| `/api/admin/orders/**` | `order-service` | rôle `collaborator` ou `admin` |
+| `/actuator/health`, `/actuator/info` | gateway | public |
+| tout le reste | — | jeton valide : on refuse par défaut |
+
+Convention : chaque service expose son sous-arbre d'administration sous
+`/api/admin/<domaine>/**`, et la gateway exige `collaborator` sur tout
+`/api/admin/**`. Un nouveau service s'ajoute donc avec deux routes et aucune
+règle de sécurité supplémentaire.
+
+### L'identité devient fiable
+
+La gateway supprime `X-User-Id` et `X-Auth-Subject` de **toute** requête
+entrante, puis repose `X-Auth-Subject` à partir du `sub` du jeton validé. Un
+service derrière la gateway peut donc faire confiance à `X-Auth-Subject` : il ne
+peut venir que d'une signature émise par Keycloak. Sans ce filtre, n'importe
+quel client pouvait réclamer le panier d'un autre en envoyant son `X-User-Id`.
+
+`X-Session-Token` n'est pas touché : il identifie un panier invité, pas un
+compte, et le client en est le propriétaire légitime. Le jeton lui-même est
+transmis tel quel, pour un service qui voudrait lire des claims plus fins.
+
+> **À faire côté services.** `cart-service` lit encore `X-User-Id`, un `Long`,
+> alors que `X-Auth-Subject` porte l'UUID Keycloak. La correspondance
+> UUID → identifiant applicatif arrive avec `U01` (#58). En attendant, une
+> requête authentifiée est traitée comme un panier invité plutôt que comme
+> celui de quelqu'un d'autre : c'est dégradé, mais sûr.
+
+### Lancer la gateway en local
+
+```bash
+docker compose up -d                        # Keycloak doit tourner
+./mvnw -pl api-gateway spring-boot:run
+curl -i http://localhost:8080/api/orders    # 401 sans jeton
+```
+
+Par défaut elle valide les jetons contre
+`http://localhost:8180/realms/ecommerce` et route vers `localhost:8083` et
+`localhost:8084`. Dans Docker, les variables de `compose.yaml` remplacent ces
+valeurs — en particulier les clés de signature, qui se récupèrent sur l'URL
+interne de Keycloak alors que l'issuer reste l'URL frontale.
+
+### CORS
+
+Configuré une seule fois dans la gateway, jamais dans un service : les origines
+viennent de `CORS_ALLOWED_ORIGINS` (back-office Vite et serveur Expo par
+défaut), avec `Authorization`, `Content-Type` et `X-Session-Token` autorisés en
+requête, `X-Session-Token` exposé en lecture au navigateur, et les
+identifiants autorisés.
 
 ## Ajouter un service
 
@@ -150,7 +211,7 @@ auto-configuration, sans annotation ni scan de composants côté service.
 | Sujet | Issue |
 |---|---|
 | Keycloak (realm, clients, rôles) | `T03` #83 |
-| Gateway (routes, JWT, CORS) | `T04` #84 |
+| Correspondance UUID Keycloak → identifiant applicatif | `U01` #58 |
 | Création des topics Kafka et DTO d'événements | `K01` #85, `K02` #86 |
 | Dockerfiles | `D01` #87 |
 | CI GitHub Actions | `D02` #53 |
