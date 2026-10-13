@@ -19,14 +19,11 @@
     <name>ecommerce-parent</name>
     <description>POM parent du monorepo back-end e-commerce</description>
 
-    <!--
-      Tout nouveau service se declare ici ET herite de ce POM.
-      Convention de nommage : <domaine>-service (anglais, kebab-case),
-      package racine com.ecommerce.<domaine>. Voir README.md.
-    -->
+   
     <modules>
         <module>common-lib</module>
         <module>cart-service</module>
+        <module>order-service</module>
     </modules>
 
     <properties>
