@@ -22,9 +22,17 @@ import com.stripe.model.checkout.Session;
 import com.stripe.param.checkout.SessionCreateParams;
 import java.util.List;
 import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
+import org.springframework.kafka.core.KafkaTemplate;
+import com.ecommerce.order.config.StripeProperties;
+import com.ecommerce.order.event.OrderPaidEvent;
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
+import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import static org.mockito.Mockito.*;
+
+
+
 
 @SpringBootTest
 @Transactional
@@ -37,6 +45,11 @@ class OrderServiceTest {
 
     @MockBean(answer = Answers.RETURNS_DEEP_STUBS)
     private StripeClient stripeClient;
+
+    @MockBean
+    private KafkaTemplate<String, Object> kafkaTemplate;
+    @Autowired
+    private StripeProperties stripeProperties;
   
 
     @Test
@@ -145,4 +158,82 @@ class OrderServiceTest {
         assertEquals("cs_test_123456", response.getStripeSessionId());
         assertEquals("https://checkout.stripe.com/pay/cs_test_123456", response.getStripeCheckoutUrl());
     }
+
+    @Test
+    @DisplayName("Webhook with valid signature marks order as IN_PREPARATION and publishes Kafka event")
+    void testHandleStripeWebhook_Success() throws Exception {
+        
+        Order order = new Order();
+        order.setUserId(1L);
+        order.setOrderNumber("CMD-2026-000099");
+        order.setStatus(OrderStatus.NEW);
+        order.setStripeSessionId("cs_test_success_123");
+        orderRepository.save(order);
+
+        
+        String payload = "{\"id\":\"evt_123\",\"object\":\"event\",\"api_version\":\"" + com.stripe.Stripe.API_VERSION + "\",\"type\":\"checkout.session.completed\",\"data\":{\"object\":{\"id\":\"cs_test_success_123\",\"object\":\"checkout.session\"}}}";
+        String sigHeader = generateStripeSignature(payload, stripeProperties.getWebhookSecret());
+
+      
+        orderService.handleStripeWebhook(payload, sigHeader);
+
+       
+        Order updated = orderRepository.findByStripeSessionId("cs_test_success_123").orElseThrow();
+        assertEquals(OrderStatus.IN_PREPARATION, updated.getStatus());
+
+    
+        verify(kafkaTemplate).send(eq("order.paid"), eq("CMD-2026-000099"), any(OrderPaidEvent.class));
+    }
+
+    @Test
+    @DisplayName("Webhook is idempotent: does not republish Kafka event if order already IN_PREPARATION")
+    void testHandleStripeWebhook_Idempotent() throws Exception {
+        
+        Order order = new Order();
+        order.setUserId(1L);
+        order.setOrderNumber("CMD-2026-000100");
+        order.setStatus(OrderStatus.IN_PREPARATION);
+        order.setStripeSessionId("cs_test_already_paid");
+        orderRepository.save(order);
+
+        String payload = "{\"id\":\"evt_124\",\"object\":\"event\",\"api_version\":\"" + com.stripe.Stripe.API_VERSION + "\",\"type\":\"checkout.session.completed\",\"data\":{\"object\":{\"id\":\"cs_test_already_paid\",\"object\":\"checkout.session\"}}}";
+        String sigHeader = generateStripeSignature(payload, stripeProperties.getWebhookSecret());
+
+        
+        orderService.handleStripeWebhook(payload, sigHeader);
+
+       
+        verify(kafkaTemplate, never()).send(any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("Webhook with invalid signature throws IllegalArgumentException")
+    void testHandleStripeWebhook_InvalidSignatureThrows() {
+        String payload = "{\"id\":\"evt_125\",\"type\":\"checkout.session.completed\"}";
+        String invalidSigHeader = "t=123456,v1=bad_signature";
+
+       
+        assertThrows(IllegalArgumentException.class, () ->
+                orderService.handleStripeWebhook(payload, invalidSigHeader));
+    }
+
+
+    
+    private String generateStripeSignature(String payload, String secret) throws Exception {
+        long timestamp = Instant.now().getEpochSecond();
+        String payloadToSign = timestamp + "." + payload;
+        Mac mac = Mac.getInstance("HmacSHA256");
+        mac.init(new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
+        byte[] hash = mac.doFinal(payloadToSign.getBytes(StandardCharsets.UTF_8));
+        StringBuilder hex = new StringBuilder();
+        for (byte b : hash) {
+            String h = Integer.toHexString(0xff & b);
+            if (h.length() == 1) hex.append('0');
+            hex.append(h);
+        }
+        return "t=" + timestamp + ",v1=" + hex;
+    }
+
+
+
 } 

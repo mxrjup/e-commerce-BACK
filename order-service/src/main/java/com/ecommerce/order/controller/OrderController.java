@@ -1,5 +1,4 @@
 package com.ecommerce.order.controller;
-import java.security.Signature;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -33,9 +32,9 @@ public class OrderController {
     }
 
     @PostMapping("/webhook")
-    public ResponseEntity<CheckoutResponse> handleStripeWebhook(
+    public ResponseEntity<Void> handleStripeWebhook(
         @RequestHeader(value= "Stripe-Signature", required=false) String stripeSignature,
-        @Valid @RequestBody  String payload){
+        @RequestBody String payload){
             
 
             if(stripeSignature == null){
