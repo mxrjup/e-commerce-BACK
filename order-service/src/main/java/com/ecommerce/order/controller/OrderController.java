@@ -1,4 +1,6 @@
 package com.ecommerce.order.controller;
+import java.security.Signature;
+
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -29,4 +31,22 @@ public class OrderController {
         CheckoutResponse response = orderService.checkout(userId, request);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
+
+    @PostMapping("/webhook")
+    public ResponseEntity<CheckoutResponse> handleStripeWebhook(
+        @RequestHeader(value= "Stripe-Signature", required=false) String stripeSignature,
+        @Valid @RequestBody  String payload){
+            
+
+            if(stripeSignature == null){
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST).build();
+            }
+
+            try{
+                orderService.handleStripeWebhook(payload, stripeSignature);
+                return ResponseEntity.ok().build();
+            }catch( IllegalArgumentException e){
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST).build();
+            }
+        }
 }
