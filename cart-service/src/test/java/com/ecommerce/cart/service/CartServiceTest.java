@@ -157,4 +157,24 @@ class CartServiceTest {
         assertTrue(cartOptAfterSecondCall.get().getItems().isEmpty());
 
     }
+
+    @Test
+    @DisplayName("clearCartOnOrderPaid clears both the user cart and the guest cart when both identifiers are set")
+    void testClearCartOnOrderPaid_ClearsUserAndGuestCart() {
+        Long userId = 42L;
+        String sessionToken = "guest-token-paid";
+
+        cartService.addItem(userId, null, new AddCartItemRequest(100L, 2));
+        cartService.addItem(null, sessionToken, new AddCartItemRequest(200L, 1));
+
+        cartService.clearCartOnOrderPaid(userId, sessionToken);
+
+        Optional<Cart> userCartOpt = cartRepository.findByUserIdWithItems(userId);
+        assertTrue(userCartOpt.isPresent());
+        assertTrue(userCartOpt.get().getItems().isEmpty());
+
+        Optional<Cart> guestCartOpt = cartRepository.findBySessionTokenWithItems(sessionToken);
+        assertTrue(guestCartOpt.isPresent());
+        assertTrue(guestCartOpt.get().getItems().isEmpty());
+    }
 }

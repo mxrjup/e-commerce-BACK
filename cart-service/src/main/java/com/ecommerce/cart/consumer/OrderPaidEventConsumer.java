@@ -1,5 +1,6 @@
 package com.ecommerce.cart.consumer;
-import com.ecommerce.cart.event.OrderPaidEvent;
+
+import com.ecommerce.common.event.OrderPaidEvent;
 import com.ecommerce.cart.service.CartService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;

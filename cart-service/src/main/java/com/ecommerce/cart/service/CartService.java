@@ -150,12 +150,14 @@ public class CartService {
             return;
         }
 
-        if(userId != null){
+        if (userId != null) {
             cartRepository.findByUserIdWithItems(userId).ifPresent(cart -> {
                 cart.clearItems();
                 cartRepository.save(cart);
             });
-        }else{
+        }
+
+        if (sessionToken != null && !sessionToken.trim().isEmpty()) {
             cartRepository.findBySessionTokenWithItems(sessionToken.trim()).ifPresent(cart -> {
                 cart.clearItems();
                 cartRepository.save(cart);
