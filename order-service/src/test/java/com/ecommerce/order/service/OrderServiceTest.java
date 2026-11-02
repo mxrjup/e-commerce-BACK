@@ -12,10 +12,21 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.Year;
 import java.util.Optional;
+import org.mockito.Answers;
+import org.springframework.boot.test.mock.mockito.MockBean;
+import com.ecommerce.order.dto.CheckoutItemRequest;
+import com.ecommerce.order.dto.CheckoutRequest;
+import com.ecommerce.order.dto.CheckoutResponse;
+import com.ecommerce.order.client.CatalogClient;
+import com.ecommerce.order.client.CatalogVariantResponse;
+import com.stripe.StripeClient;
+import com.stripe.model.checkout.Session;
+import com.stripe.param.checkout.SessionCreateParams;
+import java.util.List;
 import static org.junit.jupiter.api.Assertions.*;
-
-
-
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 @SpringBootTest
 @Transactional
@@ -25,6 +36,12 @@ class OrderServiceTest {
     private OrderService orderService;
     @Autowired
     private OrderRepository orderRepository;
+
+    @MockBean(answer = Answers.RETURNS_DEEP_STUBS)
+    private StripeClient stripeClient;
+
+    @MockBean
+    private CatalogClient catalogClient;
   
 
     @Test
@@ -55,7 +72,7 @@ class OrderServiceTest {
         assertEquals("CMD-" + currentYear + "-000043", nextOrderNumber);
     }
 
-       @Test
+    @Test
     @DisplayName("Check persistance item of an order")
     void testOrderAndOrderItemPersistence_PriceHistory() {
         
@@ -95,4 +112,84 @@ class OrderServiceTest {
         assertEquals(new BigDecimal("360.00"), persistedItem.getSubTotalInclTax());
     }
 
-} 
+    @Test
+    @DisplayName("Checkout calculates totals, shipping fee and returns Stripe session")
+    void testCheckout_CalculatesTotalsAndCreatesStripeSession() throws Exception {
+        Session mockSession = mock(Session.class);
+        when(mockSession.getId()).thenReturn("cs_test_123456");
+        when(mockSession.getUrl()).thenReturn("https://checkout.stripe.com/pay/cs_test_123456");
+        when(stripeClient.checkout().sessions().create(any(SessionCreateParams.class))).thenReturn(mockSession);
+
+        when(catalogClient.getVariant(10L)).thenReturn(
+                new CatalogVariantResponse(10L, "Souris gamer", new BigDecimal("50.00"), new BigDecimal("20.00"))
+        );
+        when(catalogClient.getVariant(20L)).thenReturn(
+                new CatalogVariantResponse(20L, "Tapis de souris", new BigDecimal("20.00"), new BigDecimal("20.00"))
+        );
+
+        CheckoutItemRequest item1 = new CheckoutItemRequest(10L, 1);
+        CheckoutItemRequest item2 = new CheckoutItemRequest(20L, 1);
+
+        CheckoutRequest request = new CheckoutRequest(
+                100L,
+                DeliveryMode.STANDARD,
+                List.of(item1, item2)
+        );
+
+        CheckoutResponse response = orderService.checkout(1L, request);
+
+        assertNotNull(response);
+        assertNotNull(response.getOrderId());
+        assertTrue(response.getOrderNumber().startsWith("CMD-"));
+        assertEquals(new BigDecimal("84.00"), response.getTotalInclTax());
+        assertEquals("cs_test_123456", response.getStripeSessionId());
+        assertEquals("https://checkout.stripe.com/pay/cs_test_123456", response.getStripeCheckoutUrl());
+    }
+
+    @Test
+    @DisplayName("Checkout sends exact line amount to Stripe avoiding any cent rounding drift")
+    void testCheckout_ExactStripeAmountRounding() throws Exception {
+        Session mockSession = mock(Session.class);
+        when(mockSession.getId()).thenReturn("cs_test_exact");
+        when(mockSession.getUrl()).thenReturn("https://checkout.stripe.com/pay/cs_test_exact");
+
+        org.mockito.ArgumentCaptor<SessionCreateParams> paramsCaptor =
+                org.mockito.ArgumentCaptor.forClass(SessionCreateParams.class);
+        when(stripeClient.checkout().sessions().create(paramsCaptor.capture())).thenReturn(mockSession);
+
+        // 3 x 10.05 HT à 5.5% TVA :
+        // HT = 30.15, TVA = 1.66, TTC = 31.81.
+        // Avec CLICK_AND_COLLECT, frais de port = 0.00€
+        when(catalogClient.getVariant(30L)).thenReturn(
+                new CatalogVariantResponse(30L, "Livre technique", new BigDecimal("10.05"), new BigDecimal("5.50"))
+        );
+
+        CheckoutItemRequest item = new CheckoutItemRequest(30L, 3);
+        CheckoutRequest request = new CheckoutRequest(100L, DeliveryMode.CLICK_AND_COLLECT, List.of(item));
+
+        CheckoutResponse response = orderService.checkout(1L, request);
+
+        assertEquals(new BigDecimal("31.81"), response.getTotalInclTax());
+
+        SessionCreateParams params = paramsCaptor.getValue();
+        // Vérifie que la somme des montants envoyés à Stripe est strictement égale à 3181 centimes (31.81 €)
+        long totalStripeCents = params.getLineItems().stream()
+                .mapToLong(li -> li.getPriceData().getUnitAmount() * li.getQuantity())
+                .sum();
+        assertEquals(3181L, totalStripeCents);
+        assertEquals("Livre technique (x3)", params.getLineItems().get(0).getPriceData().getProductData().getName());
+        assertEquals(1L, params.getLineItems().get(0).getQuantity());
+    }
+
+    @Test
+    @DisplayName("Checkout throws IllegalArgumentException when variant is not found in catalog")
+    void testCheckout_VariantNotFound_ThrowsException() {
+        when(catalogClient.getVariant(999L)).thenReturn(null);
+
+        CheckoutItemRequest item = new CheckoutItemRequest(999L, 1);
+        CheckoutRequest request = new CheckoutRequest(100L, DeliveryMode.STANDARD, List.of(item));
+
+        assertThrows(IllegalArgumentException.class, () -> orderService.checkout(1L, request));
+    }
+}
+

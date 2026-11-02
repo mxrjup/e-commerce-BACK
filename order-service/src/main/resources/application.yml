@@ -20,6 +20,15 @@ spring:
     show-sql: false
     open-in-view: false
 
+app:
+  catalog-service:
+    url: ${CATALOG_SERVICE_URL:http://localhost:8081}
+
+stripe:
+  api-key: ${STRIPE_SECRET_KEY:sk_test_placeholder}
+  success-url: ${STRIPE_SUCCESS_URL:http://localhost:3000/checkout/success?session_id={CHECKOUT_SESSION_ID}}
+  cancel-url: ${STRIPE_CANCEL_URL:http://localhost:3000/checkout/cancel}
+
 ---
 spring:
   config:
