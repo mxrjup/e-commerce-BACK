@@ -102,15 +102,20 @@ services:
 
   # ---------------------------------------------------------------------------
   # Services applicatifs. Profil « services » : ils ne demarrent pas avec un
-  # simple `docker compose up`, et attendent les Dockerfiles de D01 (#87).
-  # Un nouveau service se branche ici sur le meme modele, avec sa base dediee
-  # (voir docker/postgres/init/01-databases.sql) et son port du README.
+  # simple `docker compose up`.
+  # Tous se construisent avec le Dockerfile de la racine, qui prend le module en
+  # parametre. Un nouveau service se branche ici sur le meme modele, avec sa
+  # base dediee (voir docker/postgres/init/01-databases.sql) et son port du
+  # README.
   # ---------------------------------------------------------------------------
   api-gateway:
     profiles: ["services"]
     build:
       context: .
-      dockerfile: api-gateway/Dockerfile
+      dockerfile: Dockerfile
+      args:
+        MODULE: api-gateway
+        SERVER_PORT: 8080
     container_name: ecommerce-api-gateway
     environment:
       SERVER_PORT: 8080
@@ -133,7 +138,10 @@ services:
     profiles: ["services"]
     build:
       context: .
-      dockerfile: cart-service/Dockerfile
+      dockerfile: Dockerfile
+      args:
+        MODULE: cart-service
+        SERVER_PORT: 8083
     container_name: ecommerce-cart-service
     environment:
       SERVER_PORT: 8083
@@ -145,6 +153,32 @@ services:
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
     ports:
       - "8083:8083"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    restart: unless-stopped
+
+  order-service:
+    profiles: ["services"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        MODULE: order-service
+        SERVER_PORT: 8084
+    container_name: ecommerce-order-service
+    environment:
+      SERVER_PORT: 8084
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${ORDER_DB_NAME:-ecommerce_order}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-postgres}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+    ports:
+      - "8084:8084"
     depends_on:
       postgres:
         condition: service_healthy
