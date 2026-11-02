@@ -76,6 +76,12 @@ Le realm **`ecommerce`** est décrit par
 stack. Il se recrée entièrement avec
 `docker compose down -v && docker compose up -d`.
 
+> **Attention au piège.** Keycloak n'importe le realm que s'il n'existe pas
+> déjà : un simple `restart` ou `up --force-recreate` après modification du
+> fichier affiche `Realm 'ecommerce' already exists. Import skipped` et garde
+> l'ancienne configuration. Pour voir un changement, il faut repartir d'une
+> base vide avec `down -v`.
+
 ### Clients
 
 | Client | Pour | Type | Flux | Redirections |
