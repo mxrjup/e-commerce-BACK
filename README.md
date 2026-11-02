@@ -59,16 +59,42 @@ Dockerfiles de `D01` (#87), pas encore écrits : en attendant, lancer les
 services avec `./mvnw` (ci-dessus) en gardant les dépendances dans Docker.
 
 **Kafka** expose deux listeners : `kafka:9092` pour les conteneurs,
-`localhost:29092` pour un service lancé depuis l'IDE. Les topics se nomment
-avec des points comme séparateur (`catalogue.evenements`), jamais des
-underscores : mélanger les deux expose à des collisions de noms de métriques
-côté broker. La création explicite des topics arrive avec `K01` (#85) ; en
-attendant le broker les crée à la demande.
+`localhost:29092` pour un service lancé depuis l'IDE. Le service `kafka-init`
+crée les topics dès que le broker est prêt, puis s'arrête — voir la section
+« Topics Kafka ».
 
 **Keycloak** tourne en `start-dev` (HTTP en clair, pas de cache distribué) et
 persiste dans la base `keycloak`. Il importe au démarrage tout realm déposé
 dans `docker/keycloak/import/` : c'est là que `T03` (#83) mettra son export
 JSON.
+
+## Topics Kafka
+
+| Topic | Publié par | Consommé par |
+|---|---|---|
+| `order.paid` | Commande, à la validation du paiement (`O03` #27) | Panier (`P06` #24), Notifications (`N02` #63) |
+| `catalogue.evenements` | Catalogue : baisse de prix, retour en stock (`C09` #8) | Alertes (`N03` #64) |
+| `sav.reponse-admin` | SAV : réponse d'un collaborateur (`S03` #69) | Notifications (`N02` #63) |
+
+La liste de référence est **`docker/kafka/create-topics.sh`**, rejoué par le
+service `kafka-init` à chaque `docker compose up` : il est idempotent, un
+second passage ne touche à rien. Les manifests Kubernetes du dépôt
+`e-commerce-INFRA` portent la même liste, et les deux doivent rester
+synchronisées.
+
+Pour ajouter un topic : une ligne dans ce script, une ligne dans le manifest
+d'INFRA, et le nom repris dans la propriété que lit le service — tous les
+services lisent leur topic depuis une propriété surchargeable, jamais une
+chaîne en dur.
+
+**Le nom est le contrat** entre un producteur et ses consommateurs : point
+comme séparateur, jamais d'underscore — mélanger les deux expose à des
+collisions de noms de métriques côté broker.
+
+**L'auto-création est désactivée.** Un nom mal orthographié dans un service
+échoue (`Topic ... not present in metadata`) au lieu de créer un topic fantôme
+où personne ne lira jamais rien. Les topics de rejeu et de rebut (`DLT`)
+viendront avec `K02` (#86) et s'ajouteront au même script.
 
 ## Modules
 
@@ -212,7 +238,7 @@ auto-configuration, sans annotation ni scan de composants côté service.
 |---|---|
 | Keycloak (realm, clients, rôles) | `T03` #83 |
 | Correspondance UUID Keycloak → identifiant applicatif | `U01` #58 |
-| Création des topics Kafka et DTO d'événements | `K01` #85, `K02` #86 |
+| Config Spring Kafka commune, DTO d'événements, retry et DLT | `K02` #86 |
 | Dockerfiles | `D01` #87 |
 | CI GitHub Actions | `D02` #53 |
 | Manifests Kubernetes | `D04` #88 |
