@@ -6,6 +6,8 @@ import java.util.Optional;
 
 import org.springframework.stereotype.Service;
 
+import com.ecommerce.order.client.CatalogClient;
+import com.ecommerce.order.client.CatalogVariantResponse;
 import com.ecommerce.order.config.StripeProperties;
 import com.ecommerce.order.dto.CheckoutItemRequest;
 import com.ecommerce.order.dto.CheckoutRequest;
@@ -31,6 +33,7 @@ public class OrderService {
     private final ShippingService shippingService;
     private final StripeClient stripeClient;
     private final StripeProperties stripeProperties;
+    private final CatalogClient catalogClient;
 
 
 
@@ -68,13 +71,18 @@ public class OrderService {
         BigDecimal totalHt = BigDecimal.ZERO;
         BigDecimal totalTtc = BigDecimal.ZERO;
 
-         for (CheckoutItemRequest itemReq : request.getItems()) {
+        for (CheckoutItemRequest itemReq : request.getItems()) {
+            CatalogVariantResponse variant = catalogClient.getVariant(itemReq.getVariantId());
+            if (variant == null) {
+                throw new IllegalArgumentException("Variante introuvable dans le catalogue : " + itemReq.getVariantId());
+            }
+
             OrderItem item = new OrderItem(
                 order,
-                itemReq.getVariantId(),
-                itemReq.getDesignation(),
-                itemReq.getUnitPriceExclTax(),
-                itemReq.getVatRate(),
+                variant.id(),
+                variant.designation(),
+                variant.unitPriceExclTax(),
+                variant.vatRate(),
                 itemReq.getQuantity()
             );
             order.addItem(item);
@@ -105,7 +113,7 @@ public class OrderService {
 
     }
 
-        private Session createStripeSession(Order order, BigDecimal shippingFee) {
+    private Session createStripeSession(Order order, BigDecimal shippingFee) {
         try {
             SessionCreateParams.Builder params = SessionCreateParams.builder()
                 .setMode(SessionCreateParams.Mode.PAYMENT)
@@ -114,21 +122,25 @@ public class OrderService {
                 .putMetadata("orderNumber", order.getOrderNumber());
 
             for (OrderItem item : order.getItems()) {
-                long unitPriceCents = item.getSubTotalInclTax()
-                    .divide(BigDecimal.valueOf(item.getQuantity()), 2, RoundingMode.HALF_UP)
+                long subTotalCents = item.getSubTotalInclTax()
                     .multiply(BigDecimal.valueOf(100))
-                    .longValue();
+                    .setScale(0, RoundingMode.HALF_UP)
+                    .longValueExact();
+
+                String lineName = item.getQuantity() > 1
+                    ? item.getDesignation() + " (x" + item.getQuantity() + ")"
+                    : item.getDesignation();
 
                 params.addLineItem(
                     SessionCreateParams.LineItem.builder()
-                        .setQuantity((long) item.getQuantity())
+                        .setQuantity(1L)
                         .setPriceData(
                             SessionCreateParams.LineItem.PriceData.builder()
                                 .setCurrency("eur")
-                                .setUnitAmount(unitPriceCents)
+                                .setUnitAmount(subTotalCents)
                                 .setProductData(
                                     SessionCreateParams.LineItem.PriceData.ProductData.builder()
-                                        .setName(item.getDesignation())
+                                        .setName(lineName)
                                         .build()
                                 )
                                 .build()
@@ -138,7 +150,10 @@ public class OrderService {
             }
 
             if (shippingFee != null && shippingFee.compareTo(BigDecimal.ZERO) > 0) {
-                long shippingCents = shippingFee.multiply(BigDecimal.valueOf(100)).longValue();
+                long shippingCents = shippingFee
+                    .multiply(BigDecimal.valueOf(100))
+                    .setScale(0, RoundingMode.HALF_UP)
+                    .longValueExact();
                 params.addLineItem(
                     SessionCreateParams.LineItem.builder()
                         .setQuantity(1L)
