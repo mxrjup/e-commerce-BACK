@@ -175,8 +175,10 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      kafka:
-        condition: service_healthy
+      # Les topics, pas seulement le broker : l'auto-creation est coupee, un
+      # consommateur demarre avant kafka-init ne voit pas son topic.
+      kafka-init:
+        condition: service_completed_successfully
     restart: unless-stopped
 
 volumes:
