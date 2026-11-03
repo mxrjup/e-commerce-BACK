@@ -1,0 +1,19 @@
+# Le contexte de build est la racine du depot : tout ce qui suit n'a rien a
+# faire dans l'image, et l'en exclure accelere nettement la construction.
+**/target/
+.git/
+.github/
+.idea/
+.vscode/
+*.iml
+
+# Configuration locale et secrets.
+.env
+.env.*
+
+# Stack locale : inutile pour construire un service.
+docker/
+compose.yaml
+
+# Documentation.
+*.md

@@ -53,10 +53,11 @@ les crée au premier démarrage (`keycloak` et `ecommerce_cart` aujourd'hui). Ce
 script ne s'exécute que sur un volume vide : après y avoir ajouté une base,
 `docker compose down -v && docker compose up -d`.
 
-**Les services applicatifs** sont déclarés derrière le profil `services` et
-démarrent avec `docker compose --profile services up -d`. Ils ont besoin des
-Dockerfiles de `D01` (#87), pas encore écrits : en attendant, lancer les
-services avec `./mvnw` (ci-dessus) en gardant les dépendances dans Docker.
+**Les services applicatifs** sont déclarés derrière le profil `services` :
+`docker compose --profile services up -d --build` construit leurs images et
+démarre la pile complète. Pour travailler sur un service, il reste plus
+pratique de lancer les dépendances seules et le service avec `./mvnw`
+(ci-dessus). Voir la section « Images Docker » pour la construction.
 
 **Kafka** expose deux listeners : `kafka:9092` pour les conteneurs,
 `localhost:29092` pour un service lancé depuis l'IDE. Les topics se nomment
@@ -249,6 +250,48 @@ défaut), avec `Authorization`, `Content-Type` et `X-Session-Token` autorisés e
 requête, `X-Session-Token` exposé en lecture au navigateur, et les
 identifiants autorisés.
 
+## Images Docker
+
+Un seul `Dockerfile`, à la racine, construit n'importe quel service : le module
+est un paramètre.
+
+```bash
+docker build --build-arg MODULE=cart-service --build-arg SERVER_PORT=8083 \
+  -t cart-service .
+```
+
+`compose.yaml` passe ces arguments pour chaque service : containeriser un
+nouveau module ne demande donc pas d'écrire un Dockerfile, seulement de
+l'ajouter à la liste de POM décrite plus bas.
+
+**Le contexte de build est la racine du dépôt**, pas le dossier du module : la
+construction a besoin du POM parent et de `common-lib`. C'est aussi la raison
+d'être du `.dockerignore` — sans lui le contexte embarquerait tous les
+`target/` et le `.git`.
+
+**Deux étapes.** La première compile avec `maven:3.9.11-eclipse-temurin-21`,
+épinglée sur la même version que le wrapper du dépôt, pour qu'une construction
+locale et une construction d'image utilisent le même Maven. Les POM sont copiés
+avant les sources et `dependency:go-offline` remplit le dépôt Maven dans une
+couche à part : une modification de code ne retélécharge donc rien.
+**Un nouveau module doit être ajouté aux `COPY <module>/pom.xml` du
+Dockerfile**, sinon sa construction échoue sur un POM manquant.
+
+**Le jar est découpé en couches** par Spring Boot (`jarmode=tools`, option
+`extract --layers`) : dépendances, chargeur, dépendances SNAPSHOT, puis code
+applicatif. Les services partageant l'essentiel de leurs dépendances, leurs
+images partagent ces couches — ce qui allège les envois vers GHCR (`D03` #54)
+et les téléchargements dans le cluster (`D04` #88).
+
+**L'étape d'exécution** part d'un JRE Alpine, tourne sous l'utilisateur
+`spring` et jamais root, et laisse la JVM se dimensionner sur la limite mémoire
+du conteneur (`-XX:MaxRAMPercentage=75`) plutôt que sur la mémoire de la
+machine hôte. Les images pèsent environ 380 Mo.
+
+Si un service finit par exiger un runtime particulier, rien n'empêche de lui
+donner son propre Dockerfile : il suffira de repointer son `dockerfile:` dans
+le compose.
+
 ## Ajouter un service
 
 1. Créer le dossier `<domaine>-service`, en anglais et en kebab-case.
@@ -262,6 +305,10 @@ identifiants autorisés.
    `<Domaine>ServiceApplication`.
 6. Déclarer le plugin `spring-boot-maven-plugin` dans `<build><plugins>`, sans
    configuration.
+7. Ajouter `COPY <module>/pom.xml <module>/` au `Dockerfile` de la racine, sa
+   base de données à `docker/postgres/init/01-databases.sql` et son entrée dans
+   le profil `services` du `compose.yaml`, avec le port réservé au tableau des
+   modules.
 
 Une version de dépendance absente du BOM Spring Boot se déclare dans le
 `dependencyManagement` du POM racine, **jamais** dans le module.
@@ -314,6 +361,6 @@ auto-configuration, sans annotation ni scan de composants côté service.
 | Correspondance UUID Keycloak → identifiant applicatif | `U01` #58 |
 | Client confidentiel pour l'Admin API Keycloak | `U04` #91 |
 | Création des topics Kafka et DTO d'événements | `K01` #85, `K02` #86 |
-| Dockerfiles | `D01` #87 |
+| Dockerfile du front web | `D01` #87, après `T06` #11 |
 | CI GitHub Actions | `D02` #53 |
 | Manifests Kubernetes | `D04` #88 |
