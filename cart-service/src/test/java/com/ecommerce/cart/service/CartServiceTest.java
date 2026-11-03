@@ -159,6 +159,28 @@ class CartServiceTest {
     }
 
     @Test
+    @DisplayName("clearCartOnOrderPaid ignores duplicate order IDs to protect against Kafka replays")
+    void testClearCartOnOrderPaid_DoesNotReplaySameOrder() {
+        Long userId = 7L;
+        Long orderId = 99L;
+
+        cartService.addItem(userId, null, new AddCartItemRequest(100L, 2));
+        cartService.clearCartOnOrderPaid(userId, null, orderId);
+
+        assertTrue(cartRepository.findByUserIdWithItems(userId).orElseThrow().getItems().isEmpty());
+
+        cartService.addItem(userId, null, new AddCartItemRequest(200L, 3));
+
+        cartService.clearCartOnOrderPaid(userId, null, orderId);
+
+        Optional<Cart> cartOpt = cartRepository.findByUserIdWithItems(userId);
+        assertTrue(cartOpt.isPresent());
+        assertEquals(1, cartOpt.get().getItems().size());
+        assertEquals(200L, cartOpt.get().getItems().get(0).getVariantId());
+        assertEquals(3, cartOpt.get().getItems().get(0).getQuantity());
+    }
+
+    @Test
     @DisplayName("clearCartOnOrderPaid clears both the user cart and the guest cart when both identifiers are set")
     void testClearCartOnOrderPaid_ClearsUserAndGuestCart() {
         Long userId = 42L;

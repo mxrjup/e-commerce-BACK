@@ -4,9 +4,12 @@ import com.ecommerce.cart.dto.AddCartItemRequest;
 import com.ecommerce.cart.dto.CartResponse;
 import com.ecommerce.cart.entity.Cart;
 import com.ecommerce.cart.entity.CartItem;
+import com.ecommerce.cart.entity.ProcessedOrderEvent;
 import com.ecommerce.cart.repository.CartRepository;
+import com.ecommerce.cart.repository.ProcessedOrderEventRepository;
 import com.ecommerce.common.exception.ResourceNotFoundException;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -19,6 +22,7 @@ import java.util.UUID;
 public class CartService {
 
     private final CartRepository cartRepository;
+    private final ProcessedOrderEventRepository processedOrderEventRepository;
 
     public Cart getOrCreateCart(Long userId, String sessionToken) {
         
@@ -145,7 +149,23 @@ public class CartService {
         return CartResponse.fromEntity(savedCart);
     }
 
-    public void clearCartOnOrderPaid(Long userId, String sessionToken){
+    public void clearCartOnOrderPaid(Long userId, String sessionToken) {
+        clearCartOnOrderPaid(userId, sessionToken, null);
+    }
+
+    public void clearCartOnOrderPaid(Long userId, String sessionToken, Long orderId) {
+        if (orderId != null) {
+            if (processedOrderEventRepository.existsByOrderId(orderId)) {
+                return;
+            }
+
+            try {
+                processedOrderEventRepository.save(new ProcessedOrderEvent(orderId));
+            } catch (DataIntegrityViolationException ignored) {
+                return;
+            }
+        }
+
         if (userId == null && (sessionToken == null || sessionToken.trim().isEmpty())) {
             return;
         }

@@ -25,7 +25,7 @@ public class OrderPaidEventConsumer {
     )
     public void handleOrderPaid(OrderPaidEvent event){
         log.info("received order paid event for orderId : {}, userId: {}", event.getOrderId(), event.getUserId());
-        cartService.clearCartOnOrderPaid(event.getUserId(), event.getSessionToken());
+        cartService.clearCartOnOrderPaid(event.getUserId(), event.getSessionToken(), event.getOrderId());
     }
   
 }
