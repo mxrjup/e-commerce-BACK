@@ -13,7 +13,7 @@
 
     <artifactId>common-lib</artifactId>
     <name>common-lib</name>
-    <description>Librairie commune partagee par les services (contrat d'erreur HTTP)</description>
+    <description>Librairie commune partagee par les services (contrat d'erreur HTTP, evenements Kafka)</description>
 
     <!--
       Librairie, pas application : le spring-boot-maven-plugin n'est pas
@@ -32,6 +32,11 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-validation</artifactId>
             <optional>true</optional>
+        </dependency>
+        <!-- Format JSON des evenements partages. -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-annotations</artifactId>
         </dependency>
     </dependencies>
 </project>
