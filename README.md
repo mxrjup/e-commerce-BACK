@@ -188,7 +188,7 @@ second passage ne touche à rien. Les manifests Kubernetes du dépôt
 synchronisées.
 
 Pour ajouter un topic : une ligne dans ce script, une ligne dans le manifest
-d'INFRA, et le nom repris dans la propriété que lit le service — tous les
+d'INFRA (son `.dlt` suit automatiquement), et le nom repris dans la propriété que lit le service — tous les
 services lisent leur topic depuis une propriété surchargeable, jamais une
 chaîne en dur.
 
@@ -351,6 +351,11 @@ s'ils ne sont pas fournis. Un consommateur dont l'effet n'est pas idempotent
 par nature, comme l'envoi d'un e-mail, retient les `eventId` traités : Kafka
 garantit *au moins une* livraison, pas *exactement une*.
 
+`eventId` ne protège que de la relivraison **du même message**. Deux
+publications du même fait métier (deux webhooks Stripe pour un même paiement,
+traités en parallèle) portent deux `eventId` différents : là, dédoublonner sur
+une **clé métier**, comme `orderId` (c'est ce que fait le panier, #100).
+
 ```java
 // Producteur
 @Value("${app.kafka.topics.order-paid}")
@@ -413,11 +418,22 @@ Un listener qui lève une exception est **rejoué sur place**, avec une attente
 qui double à chaque fois. Une fois les tentatives épuisées, le message part
 dans `<topic>.dlt`, avec l'exception dans ses en-têtes (`kafka_dlt-exception-message`,
 `kafka_dlt-original-topic`, ...), et le consommateur passe au suivant : un
-message en échec ne bloque jamais la partition.
+message en échec ne bloque pas la partition.
+
+> **À condition que le DLT existe.** L'auto-création étant coupée, publier
+> dans un `.dlt` absent échoue : le message n'est jamais écarté, il est relivré
+> sans fin et **sa partition est bloquée** (mesuré par la revue : 26 tentatives
+> en 20 s, et le message suivant jamais reçu). Donc :
+>
+> - le Job de création des topics d'INFRA (mxrjup/e-commerce-INFRA#3) doit être
+>   déployé **avant ou en même temps** que les services qui consomment ;
+> - un topic renommé par `app.kafka.topics.*` doit être créé, **lui et son
+>   `.dlt`**, dans `create-topics.sh` et dans INFRA : les scripts ne créent que
+>   les noms par défaut.
 
 | Propriété | Défaut |
 |---|---|
-| `app.kafka.retry.max-retries` | `3` (soit 4 tentatives) |
+| `app.kafka.retry.max-retries` | `3` (soit 4 tentatives) ; `0` : rebut dès le premier échec |
 | `app.kafka.retry.initial-interval` | `1s` |
 | `app.kafka.retry.multiplier` | `2` |
 | `app.kafka.retry.max-interval` | `10s` |
