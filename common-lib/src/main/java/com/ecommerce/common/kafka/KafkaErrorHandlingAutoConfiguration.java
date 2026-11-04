@@ -20,6 +20,8 @@ import org.springframework.kafka.listener.CommonErrorHandler;
 import org.springframework.kafka.listener.DeadLetterPublishingRecoverer;
 import org.springframework.kafka.listener.DefaultErrorHandler;
 import org.springframework.kafka.support.ExponentialBackOffWithMaxRetries;
+import org.springframework.util.backoff.BackOff;
+import org.springframework.util.backoff.FixedBackOff;
 
 /**
  * Retry and dead letter policy shared by every {@code @KafkaListener}.
@@ -30,6 +32,15 @@ import org.springframework.kafka.support.ExponentialBackOffWithMaxRetries;
  * headers, and the consumer moves on: one bad record never blocks a partition.
  * Records that can never succeed (a body that is not valid JSON, an unknown
  * event type) skip the retries and go to the DLT at once.
+ *
+ * <p><strong>The dead letter topic must exist.</strong> Topic auto-creation is
+ * disabled, so publishing to a missing DLT fails, the record is never
+ * recovered and is redelivered again and again: its partition is blocked.
+ * Every topic a service consumes needs its {@code <topic>.dlt} created by
+ * {@code docker/kafka/create-topics.sh} and by the topics Job of
+ * e-commerce-INFRA, before the service is deployed. This includes a topic
+ * renamed through {@code app.kafka.topics.*}: the scripts only create the
+ * default names.
  *
  * <p>Spring Boot hands the {@link CommonErrorHandler} bean to the listener
  * container factory: a service has nothing to declare.
@@ -66,12 +77,20 @@ public class KafkaErrorHandlingAutoConfiguration {
     @ConditionalOnMissingBean(CommonErrorHandler.class)
     public DefaultErrorHandler kafkaErrorHandler(DeadLetterPublishingRecoverer recoverer,
                                                  KafkaRetryProperties retry) {
+        // DefaultErrorHandler already treats deserialization and conversion
+        // failures as not retryable: they go to the DLT without waiting.
+        return new DefaultErrorHandler(recoverer, backOff(retry));
+    }
+
+    static BackOff backOff(KafkaRetryProperties retry) {
+        if (retry.getMaxRetries() <= 0) {
+            // ExponentialBackOffWithMaxRetries(0) still grants one retry.
+            return new FixedBackOff(0L, 0L);
+        }
         ExponentialBackOffWithMaxRetries backOff = new ExponentialBackOffWithMaxRetries(retry.getMaxRetries());
         backOff.setInitialInterval(retry.getInitialInterval().toMillis());
         backOff.setMultiplier(retry.getMultiplier());
         backOff.setMaxInterval(retry.getMaxInterval().toMillis());
-        // DefaultErrorHandler already treats deserialization and conversion
-        // failures as not retryable: they go to the DLT without waiting.
-        return new DefaultErrorHandler(recoverer, backOff);
+        return backOff;
     }
 }
