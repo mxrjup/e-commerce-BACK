@@ -292,6 +292,37 @@ Si un service finit par exiger un runtime particulier, rien n'empêche de lui
 donner son propre Dockerfile : il suffira de repointer son `dockerfile:` dans
 le compose.
 
+## Intégration continue
+
+GitHub Actions (`.github/workflows/ci.yml`) construit et teste le back-end à
+chaque Pull Request vers `dev` ou `main`, et à chaque merge sur ces branches.
+
+**Seuls les modules touchés sont reconstruits**, un job par module :
+
+| Changement | Modules construits |
+|---|---|
+| `<module>/**` | ce module |
+| `common-lib/**`, `pom.xml` racine, `mvnw`, `.mvn/**`, la CI elle-même | tous |
+| le reste : README, `compose.yaml`, `docker/`, `Dockerfile`… | aucun |
+
+Chaque job construit d'abord les modules dont il dépend (POM parent,
+`common-lib`) sans leurs tests, puis lance `./mvnw -pl <module> verify`. Sans
+base de comparaison (lancement manuel, premier push d'une branche), tout est
+construit. Pour voir ce qu'une branche déclencherait :
+
+```bash
+.github/scripts/ci-modules.sh origin/dev HEAD
+```
+
+**Le job `CI` résume le run** : vert si tous les modules construits sont verts,
+ou si aucun module n'était concerné. C'est **le seul check à rendre
+obligatoire** dans la protection des branches `dev` et `main` : les jobs par
+module n'existent que quand leur module change, un check obligatoire sur l'un
+d'eux bloquerait toute PR qui ne le touche pas.
+
+En cas d'échec, les rapports Surefire du module sont joints au run
+(`surefire-<module>`, gardés 7 jours).
+
 ## Ajouter un service
 
 1. Créer le dossier `<domaine>-service`, en anglais et en kebab-case.
@@ -309,6 +340,9 @@ le compose.
    base de données à `docker/postgres/init/01-databases.sql` et son entrée dans
    le profil `services` du `compose.yaml`, avec le port réservé au tableau des
    modules.
+
+La CI n'a pas à être modifiée : elle lit la liste des modules dans le
+`pom.xml` racine.
 
 Une version de dépendance absente du BOM Spring Boot se déclare dans le
 `dependencyManagement` du POM racine, **jamais** dans le module.
@@ -362,5 +396,4 @@ auto-configuration, sans annotation ni scan de composants côté service.
 | Client confidentiel pour l'Admin API Keycloak | `U04` #91 |
 | Création des topics Kafka et DTO d'événements | `K01` #85, `K02` #86 |
 | Dockerfile du front web | `D01` #87, après `T06` #11 |
-| CI GitHub Actions | `D02` #53 |
 | Manifests Kubernetes | `D04` #88 |
