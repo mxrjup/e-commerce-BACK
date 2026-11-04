@@ -1,5 +1,6 @@
 package com.ecommerce.common.kafka;
 
+import java.math.BigDecimal;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
@@ -94,7 +95,8 @@ class KafkaRetryAndDeadLetterTest {
 
     @Test
     void shouldDispatchEveryCatalogEventToOneListener() throws Exception {
-        PriceDroppedEvent drop = PriceDroppedEvent.builder().variantId(10L).build();
+        PriceDroppedEvent drop = PriceDroppedEvent.builder().variantId(10L)
+                .previousUnitPriceExclTax(BigDecimal.TEN).newUnitPriceExclTax(BigDecimal.ONE).build();
         BackInStockEvent restock = BackInStockEvent.builder().variantId(10L).availableQuantity(3).build();
 
         kafkaTemplate.send(KafkaTopics.CATALOG_EVENTS, "10", drop).get();

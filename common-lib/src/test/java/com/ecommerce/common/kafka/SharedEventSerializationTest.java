@@ -14,6 +14,7 @@ import com.ecommerce.common.event.BackInStockEvent;
 import com.ecommerce.common.event.CatalogEvent;
 import com.ecommerce.common.event.OrderPaidEvent;
 import com.ecommerce.common.event.PriceDroppedEvent;
+import com.ecommerce.common.event.SupportAdminReplyEvent;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -106,6 +107,20 @@ class SharedEventSerializationTest {
 
         assertThat(event.eventId()).isNotNull();
         assertThat(event.occurredAt()).isNotNull();
+    }
+
+    @Test
+    void shouldRejectAReplyEventWithoutTheUserToNotify() {
+        assertThatThrownBy(() -> SupportAdminReplyEvent.builder().ticketId(1L).build())
+                .isInstanceOf(NullPointerException.class)
+                .hasMessage("userId");
+    }
+
+    @Test
+    void shouldRejectAPriceDropWithoutItsPrices() {
+        assertThatThrownBy(() -> PriceDroppedEvent.builder().variantId(10L).build())
+                .isInstanceOf(NullPointerException.class)
+                .hasMessage("previousUnitPriceExclTax");
     }
 
     @Test

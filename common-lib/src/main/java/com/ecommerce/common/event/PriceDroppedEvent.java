@@ -23,6 +23,8 @@ public record PriceDroppedEvent(
 
     public PriceDroppedEvent {
         Objects.requireNonNull(variantId, "variantId");
+        Objects.requireNonNull(previousUnitPriceExclTax, "previousUnitPriceExclTax");
+        Objects.requireNonNull(newUnitPriceExclTax, "newUnitPriceExclTax");
         eventId = eventId != null ? eventId : UUID.randomUUID();
         occurredAt = occurredAt != null ? occurredAt : Instant.now();
     }

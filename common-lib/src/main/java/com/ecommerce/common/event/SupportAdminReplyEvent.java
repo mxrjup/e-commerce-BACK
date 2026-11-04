@@ -22,6 +22,8 @@ public record SupportAdminReplyEvent(
 
     public SupportAdminReplyEvent {
         Objects.requireNonNull(ticketId, "ticketId");
+        // Notifications cannot tell whom to notify without it.
+        Objects.requireNonNull(userId, "userId");
         eventId = eventId != null ? eventId : UUID.randomUUID();
         occurredAt = occurredAt != null ? occurredAt : Instant.now();
     }
