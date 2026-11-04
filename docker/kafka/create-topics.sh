@@ -25,6 +25,12 @@ TOPICS=(
   "sav.reponse-admin"
 )
 
+# K02 : un topic de rebut par topic metier, nom = topic + ".dlt". Un message
+# y arrive une fois ses tentatives epuisees (voir common-lib). Avec
+# l'auto-creation coupee, un DLT absent ferait echouer la publication, et le
+# message serait rejoue en boucle au lieu d'etre ecarte.
+TOPICS+=("${TOPICS[@]/%/.dlt}")
+
 for topic in "${TOPICS[@]}"; do
   echo "topic ${topic} : creation si absent"
   /opt/kafka/bin/kafka-topics.sh --bootstrap-server "${BOOTSTRAP}" \
