@@ -1,14 +1,14 @@
 package com.ecommerce.order.service;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Year;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 
-import org.springframework.kafka.core.KafkaTemplate;
-import org.springframework.stereotype.Service;
-
 import com.ecommerce.common.event.OrderPaidEvent;
+import com.ecommerce.order.client.CatalogClient;
+import com.ecommerce.order.client.CatalogVariantResponse;
 import com.ecommerce.order.config.StripeProperties;
 import com.ecommerce.order.dto.CheckoutItemRequest;
 import com.ecommerce.order.dto.CheckoutRequest;
@@ -17,24 +17,20 @@ import com.ecommerce.order.entity.Order;
 import com.ecommerce.order.entity.OrderItem;
 import com.ecommerce.order.entity.OrderStatus;
 import com.ecommerce.order.repository.OrderRepository;
-import com.stripe.StripeClient;
-import com.stripe.exception.SignatureVerificationException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.stripe.StripeClient;
+import com.stripe.exception.SignatureVerificationException;
 import com.stripe.model.Event;
 import com.stripe.model.checkout.Session;
 import com.stripe.net.Webhook;
-
+import com.stripe.param.checkout.SessionCreateParams;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-
-import com.stripe.param.checkout.SessionCreateParams;
-import java.math.RoundingMode;
 import org.springframework.beans.factory.annotation.Value;
-
-
-
+import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.stereotype.Service;
 
 @Service
 @RequiredArgsConstructor
@@ -46,41 +42,36 @@ public class OrderService {
     private final StripeClient stripeClient;
     private final StripeProperties stripeProperties;
     private final KafkaTemplate<String, Object> kafkaTemplate;
+    private final CatalogClient catalogClient;
 
     @Value("${app.kafka.topics.order-paid:order.paid}")
     private String orderPaidTopic;
-    
 
-
-
-     /**
+    /**
      * Generate an another order number : CMD-YYYY-XXXXXX.
      * Example : CMD-2026-000001
      */
-    public String generateOrderNumber(){
+    public String generateOrderNumber() {
         int year = Year.now().getValue();
         String prefix = "CMD-" + year + "-";
 
         Optional<Order> lastOrderOpt = orderRepository.findFirstByOrderNumberStartingWithOrderByOrderNumberDesc(prefix);
 
         int nextNumber = 1;
-        if(!lastOrderOpt.isEmpty()){
-            
+        if (!lastOrderOpt.isEmpty()) {
             String lastOrderNumber = lastOrderOpt.get().getOrderNumber();
             String seqPart = lastOrderNumber.substring(lastOrderNumber.lastIndexOf('-') + 1);
-
-            nextNumber = Integer.parseInt(seqPart)+1;
+            nextNumber = Integer.parseInt(seqPart) + 1;
         }
         return prefix + String.format("%06d", nextNumber);
     }
 
     @Transactional
-    public CheckoutResponse checkout(Long userId, String sessionToken, CheckoutRequest request){
+    public CheckoutResponse checkout(Long userId, String sessionToken, CheckoutRequest request) {
         Order order = new Order();
         order.setOrderNumber(generateOrderNumber());
         order.setUserId(userId);
         order.setSessionToken(sessionToken);
-
         order.setShippingAddressId(request.getShippingAddressId());
         order.setDeliveryMode(request.getDeliveryMode());
         order.setStatus(order.getStatus());
@@ -88,13 +79,18 @@ public class OrderService {
         BigDecimal totalHt = BigDecimal.ZERO;
         BigDecimal totalTtc = BigDecimal.ZERO;
 
-         for (CheckoutItemRequest itemReq : request.getItems()) {
+        for (CheckoutItemRequest itemReq : request.getItems()) {
+            CatalogVariantResponse variant = catalogClient.getVariant(itemReq.getVariantId());
+            if (variant == null) {
+                throw new IllegalArgumentException("Variante introuvable dans le catalogue : " + itemReq.getVariantId());
+            }
+
             OrderItem item = new OrderItem(
                 order,
-                itemReq.getVariantId(),
-                itemReq.getDesignation(),
-                itemReq.getUnitPriceExclTax(),
-                itemReq.getVatRate(),
+                variant.id(),
+                variant.designation(),
+                variant.unitPriceExclTax(),
+                variant.vatRate(),
                 itemReq.getQuantity()
             );
             order.addItem(item);
@@ -116,16 +112,15 @@ public class OrderService {
         orderRepository.save(order);
 
         return CheckoutResponse.builder()
-                .orderId(order.getId())
-                .orderNumber(order.getOrderNumber())
-                .totalInclTax(order.getTotalInclTax())
-                .stripeSessionId(session.getId())
-                .stripeCheckoutUrl(session.getUrl())
-                .build();
-
+            .orderId(order.getId())
+            .orderNumber(order.getOrderNumber())
+            .totalInclTax(order.getTotalInclTax())
+            .stripeSessionId(session.getId())
+            .stripeCheckoutUrl(session.getUrl())
+            .build();
     }
 
-        private Session createStripeSession(Order order, BigDecimal shippingFee) {
+    private Session createStripeSession(Order order, BigDecimal shippingFee) {
         try {
             SessionCreateParams.Builder params = SessionCreateParams.builder()
                 .setMode(SessionCreateParams.Mode.PAYMENT)
@@ -134,21 +129,25 @@ public class OrderService {
                 .putMetadata("orderNumber", order.getOrderNumber());
 
             for (OrderItem item : order.getItems()) {
-                long unitPriceCents = item.getSubTotalInclTax()
-                    .divide(BigDecimal.valueOf(item.getQuantity()), 2, RoundingMode.HALF_UP)
+                long subTotalCents = item.getSubTotalInclTax()
                     .multiply(BigDecimal.valueOf(100))
-                    .longValue();
+                    .setScale(0, RoundingMode.HALF_UP)
+                    .longValueExact();
+
+                String lineName = item.getQuantity() > 1
+                    ? item.getDesignation() + " (x" + item.getQuantity() + ")"
+                    : item.getDesignation();
 
                 params.addLineItem(
                     SessionCreateParams.LineItem.builder()
-                        .setQuantity((long) item.getQuantity())
+                        .setQuantity(1L)
                         .setPriceData(
                             SessionCreateParams.LineItem.PriceData.builder()
                                 .setCurrency("eur")
-                                .setUnitAmount(unitPriceCents)
+                                .setUnitAmount(subTotalCents)
                                 .setProductData(
                                     SessionCreateParams.LineItem.PriceData.ProductData.builder()
-                                        .setName(item.getDesignation())
+                                        .setName(lineName)
                                         .build()
                                 )
                                 .build()
@@ -158,7 +157,10 @@ public class OrderService {
             }
 
             if (shippingFee != null && shippingFee.compareTo(BigDecimal.ZERO) > 0) {
-                long shippingCents = shippingFee.multiply(BigDecimal.valueOf(100)).longValue();
+                long shippingCents = shippingFee
+                    .multiply(BigDecimal.valueOf(100))
+                    .setScale(0, RoundingMode.HALF_UP)
+                    .longValueExact();
                 params.addLineItem(
                     SessionCreateParams.LineItem.builder()
                         .setQuantity(1L)
@@ -277,5 +279,4 @@ public class OrderService {
             return null;
         }
     }
-
 }

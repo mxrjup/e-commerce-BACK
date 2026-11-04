@@ -22,6 +22,7 @@
    
     <modules>
         <module>common-lib</module>
+        <module>api-gateway</module>
         <module>cart-service</module>
         <module>order-service</module>
     </modules>
@@ -32,10 +33,18 @@
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
         <!-- Versions non gerees par le BOM Spring Boot : a centraliser ici. -->
         <springdoc.version>2.6.0</springdoc.version>
+        <spring-cloud.version>2023.0.3</spring-cloud.version>
     </properties>
 
     <dependencyManagement>
         <dependencies>
+            <dependency>
+                <groupId>org.springframework.cloud</groupId>
+                <artifactId>spring-cloud-dependencies</artifactId>
+                <version>${spring-cloud.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
             <dependency>
                 <groupId>org.springdoc</groupId>
                 <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>

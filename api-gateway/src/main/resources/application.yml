@@ -1,0 +1,59 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: api-gateway
+
+  cloud:
+    gateway:
+      # Un service = une route. Les chemins /api/admin/** sont reserves au
+      # back-office par SecurityConfig, quel que soit le service cible.
+      routes:
+        - id: cart
+          uri: ${CART_SERVICE_URI:http://localhost:8083}
+          predicates:
+            - Path=/api/cart/**
+        - id: orders
+          uri: ${ORDER_SERVICE_URI:http://localhost:8084}
+          predicates:
+            - Path=/api/orders/**
+        - id: orders-admin
+          uri: ${ORDER_SERVICE_URI:http://localhost:8084}
+          predicates:
+            - Path=/api/admin/orders/**
+      httpclient:
+        connect-timeout: 2000
+        response-timeout: 10s
+
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          # L'issuer est l'URL frontale de Keycloak : c'est ce que contient le
+          # jeton. Les cles, elles, se recuperent sur l'URL joignable depuis
+          # le reseau du service ; les deux peuvent donc differer.
+          issuer-uri: ${KEYCLOAK_ISSUER_URI:http://localhost:8180/realms/ecommerce}
+          jwk-set-uri: ${KEYCLOAK_JWK_SET_URI:http://localhost:8180/realms/ecommerce/protocol/openid-connect/certs}
+          # Audience ajoutee par les clients web-bo et mobile-app (T03) : un
+          # jeton emis pour une autre audience est refuse.
+          audiences: ecommerce-api
+
+gateway:
+  cors:
+    # Back-office Vite et serveur de developpement Expo.
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:8081}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+logging:
+  level:
+    org.springframework.cloud.gateway: INFO
