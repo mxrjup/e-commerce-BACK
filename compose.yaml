@@ -93,8 +93,10 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
-      # K01 (#85) cree les topics explicitement et passera ceci a false.
-      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      # Les topics sont crees explicitement par kafka-init : un nom mal
+      # orthographie dans un service doit echouer, pas creer un topic fantome
+      # ou personne ne lira jamais rien.
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
       KAFKA_LOG_DIRS: /var/lib/kafka/data
     ports:
       - "${KAFKA_PORT:-29092}:29092"
@@ -107,6 +109,23 @@ services:
       retries: 20
       start_period: 15s
     restart: unless-stopped
+
+  # Cree les topics une fois le broker pret, puis s'arrete. Idempotent : un
+  # `docker compose up` sur une stack deja en place ne fait rien de plus.
+  # La liste des topics est dans le script, pas ici.
+  kafka-init:
+    image: apache/kafka:3.8.1
+    container_name: ecommerce-kafka-init
+    environment:
+      KAFKA_BOOTSTRAP_SERVER: kafka:9092
+      KAFKA_TOPIC_PARTITIONS: ${KAFKA_TOPIC_PARTITIONS:-3}
+    volumes:
+      - ./docker/kafka/create-topics.sh:/create-topics.sh:ro
+    entrypoint: ["/bin/bash", "/create-topics.sh"]
+    depends_on:
+      kafka:
+        condition: service_healthy
+    restart: "no"
 
   # ---------------------------------------------------------------------------
   # Services applicatifs. Profil « services » : ils ne demarrent pas avec un
@@ -164,8 +183,10 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      kafka:
-        condition: service_healthy
+      # Les topics, pas seulement le broker : l'auto-creation est coupee, un
+      # consommateur demarre avant kafka-init ne voit pas son topic.
+      kafka-init:
+        condition: service_completed_successfully
     restart: unless-stopped
 
   order-service:
@@ -190,8 +211,10 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      kafka:
-        condition: service_healthy
+      # Producteur de order.paid : comme cart-service, il attend les topics et
+      # pas seulement le broker, l'auto-creation etant coupee.
+      kafka-init:
+        condition: service_completed_successfully
     restart: unless-stopped
 
 volumes:
