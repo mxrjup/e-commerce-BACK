@@ -25,7 +25,7 @@ public class CartService {
     private final ProcessedOrderEventRepository processedOrderEventRepository;
 
     public Cart getOrCreateCart(Long userId, String sessionToken) {
-        
+
         if (userId != null) {
             return cartRepository.findByUserIdWithItems(userId)
                     .orElseGet(() -> cartRepository.save(new Cart(userId, null)));
@@ -40,6 +40,11 @@ public class CartService {
         return cartRepository.save(new Cart(null, newSessionToken));
     }
 
+    /**
+     * Reads the cart, creating it when the visitor does not have one yet. The
+     * transaction has to stay writable for that: PostgreSQL rejects an INSERT
+     * in a read-only transaction, while H2 lets it through.
+     */
     public CartResponse getCart(Long userId, String sessionToken) {
         Cart cart = getOrCreateCart(userId, sessionToken);
         return CartResponse.fromEntity(cart);
