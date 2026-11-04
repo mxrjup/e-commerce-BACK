@@ -19,15 +19,17 @@ import lombok.RequiredArgsConstructor;
 public class OrderController {
 
     public static final String HEADER_USER_ID = "X-User-Id";
+    public static final String HEADER_SESSION_TOKEN = "X-Session-Token";
 
     private final OrderService orderService;
 
     @PostMapping("/checkout")
     public ResponseEntity<CheckoutResponse> checkout(
             @RequestHeader(value = HEADER_USER_ID, required = true) Long userId,
+            @RequestHeader(value = HEADER_SESSION_TOKEN, required = false) String sessionToken,
             @Valid @RequestBody CheckoutRequest request) {
 
-        CheckoutResponse response = orderService.checkout(userId, request);
+        CheckoutResponse response = orderService.checkout(userId, sessionToken, request);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 

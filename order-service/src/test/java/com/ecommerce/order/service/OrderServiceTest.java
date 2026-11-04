@@ -12,8 +12,10 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.Year;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 import org.mockito.Answers;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.kafka.support.SendResult;
 import com.ecommerce.order.dto.CheckoutItemRequest;
 import com.ecommerce.order.dto.CheckoutRequest;
 import com.ecommerce.order.dto.CheckoutResponse;
@@ -23,8 +25,8 @@ import com.stripe.param.checkout.SessionCreateParams;
 import java.util.List;
 import static org.junit.jupiter.api.Assertions.*;
 import org.springframework.kafka.core.KafkaTemplate;
+import com.ecommerce.common.event.OrderPaidEvent;
 import com.ecommerce.order.config.StripeProperties;
-import com.ecommerce.order.event.OrderPaidEvent;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
@@ -149,7 +151,7 @@ class OrderServiceTest {
                 List.of(item1, item2)
         );
 
-        CheckoutResponse response = orderService.checkout(1L, request);
+        CheckoutResponse response = orderService.checkout(1L, null, request);
 
         assertNotNull(response);
         assertNotNull(response.getOrderId());
@@ -171,10 +173,11 @@ class OrderServiceTest {
         orderRepository.save(order);
 
         
-        String payload = "{\"id\":\"evt_123\",\"object\":\"event\",\"api_version\":\"" + com.stripe.Stripe.API_VERSION + "\",\"type\":\"checkout.session.completed\",\"data\":{\"object\":{\"id\":\"cs_test_success_123\",\"object\":\"checkout.session\"}}}";
+        String payload = "{\"id\":\"evt_123\",\"object\":\"event\",\"api_version\":\"" + com.stripe.Stripe.API_VERSION + "\",\"type\":\"checkout.session.completed\",\"data\":{\"object\":{\"id\":\"cs_test_success_123\",\"object\":\"checkout.session\",\"payment_status\":\"paid\"}}}";
         String sigHeader = generateStripeSignature(payload, stripeProperties.getWebhookSecret());
+        when(kafkaTemplate.send(eq("order.paid"), eq("CMD-2026-000099"), any(OrderPaidEvent.class)))
+            .thenReturn(CompletableFuture.completedFuture(mock(SendResult.class)));
 
-      
         orderService.handleStripeWebhook(payload, sigHeader);
 
        
@@ -207,14 +210,77 @@ class OrderServiceTest {
     }
 
     @Test
+    @DisplayName("Webhook ignores checkout.session.completed when payment_status is not paid")
+    void testHandleStripeWebhook_IgnoresUnpaidSession() throws Exception {
+        Order order = new Order();
+        order.setUserId(1L);
+        order.setOrderNumber("CMD-2026-000101");
+        order.setStatus(OrderStatus.NEW);
+        order.setStripeSessionId("cs_test_unpaid_123");
+        orderRepository.save(order);
+
+        String payload = "{\"id\":\"evt_125\",\"object\":\"event\",\"api_version\":\"2022-11-15\",\"type\":\"checkout.session.completed\",\"data\":{\"object\":{\"id\":\"cs_test_unpaid_123\",\"object\":\"checkout.session\",\"payment_status\":\"unpaid\"}}}";
+        String sigHeader = generateStripeSignature(payload, stripeProperties.getWebhookSecret());
+
+        orderService.handleStripeWebhook(payload, sigHeader);
+
+        Order updated = orderRepository.findByStripeSessionId("cs_test_unpaid_123").orElseThrow();
+        assertEquals(OrderStatus.NEW, updated.getStatus());
+        verify(kafkaTemplate, never()).send(any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("Webhook processes a legacy Stripe API payload when payment_status is paid")
+    void testHandleStripeWebhook_LegacyApiVersionIsHandled() throws Exception {
+        Order order = new Order();
+        order.setUserId(1L);
+        order.setOrderNumber("CMD-2026-000102");
+        order.setStatus(OrderStatus.NEW);
+        order.setStripeSessionId("cs_test_legacy_123");
+        orderRepository.save(order);
+
+        String payload = "{\"id\":\"evt_126\",\"object\":\"event\",\"api_version\":\"2022-11-15\",\"type\":\"checkout.session.completed\",\"data\":{\"object\":{\"id\":\"cs_test_legacy_123\",\"object\":\"checkout.session\",\"payment_status\":\"paid\"}}}";
+        String sigHeader = generateStripeSignature(payload, stripeProperties.getWebhookSecret());
+        when(kafkaTemplate.send(eq("order.paid"), eq("CMD-2026-000102"), any(OrderPaidEvent.class)))
+            .thenReturn(CompletableFuture.completedFuture(mock(SendResult.class)));
+
+        orderService.handleStripeWebhook(payload, sigHeader);
+
+        Order updated = orderRepository.findByStripeSessionId("cs_test_legacy_123").orElseThrow();
+        assertEquals(OrderStatus.IN_PREPARATION, updated.getStatus());
+        verify(kafkaTemplate).send(eq("order.paid"), eq("CMD-2026-000102"), any(OrderPaidEvent.class));
+    }
+
+    @Test
     @DisplayName("Webhook with invalid signature throws IllegalArgumentException")
     void testHandleStripeWebhook_InvalidSignatureThrows() {
-        String payload = "{\"id\":\"evt_125\",\"type\":\"checkout.session.completed\"}";
+        String payload = "{\"id\":\"evt_127\",\"type\":\"checkout.session.completed\"}";
         String invalidSigHeader = "t=123456,v1=bad_signature";
 
        
         assertThrows(IllegalArgumentException.class, () ->
                 orderService.handleStripeWebhook(payload, invalidSigHeader));
+    }
+
+    @Test
+    @DisplayName("Webhook with Kafka send failure throws IllegalStateException and keeps order NEW")
+    void testHandleStripeWebhook_SendFailureRollsBack() throws Exception {
+        Order order = new Order();
+        order.setUserId(1L);
+        order.setOrderNumber("CMD-2026-000103");
+        order.setStatus(OrderStatus.NEW);
+        order.setStripeSessionId("cs_test_kafka_failure");
+        orderRepository.save(order);
+
+        String payload = "{\"id\":\"evt_128\",\"object\":\"event\",\"api_version\":\"" + com.stripe.Stripe.API_VERSION + "\",\"type\":\"checkout.session.completed\",\"data\":{\"object\":{\"id\":\"cs_test_kafka_failure\",\"object\":\"checkout.session\",\"payment_status\":\"paid\"}}}";
+        String sigHeader = generateStripeSignature(payload, stripeProperties.getWebhookSecret());
+        when(kafkaTemplate.send(eq("order.paid"), eq("CMD-2026-000103"), any(OrderPaidEvent.class)))
+            .thenThrow(new RuntimeException("Kafka down"));
+
+        assertThrows(IllegalStateException.class, () -> orderService.handleStripeWebhook(payload, sigHeader));
+
+        Order updated = orderRepository.findByStripeSessionId("cs_test_kafka_failure").orElseThrow();
+        assertEquals(OrderStatus.NEW, updated.getStatus());
     }
 
 

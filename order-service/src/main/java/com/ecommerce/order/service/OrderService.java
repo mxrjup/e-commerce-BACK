@@ -3,10 +3,12 @@ package com.ecommerce.order.service;
 import java.math.BigDecimal;
 import java.time.Year;
 import java.util.Optional;
+import java.util.concurrent.TimeUnit;
 
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
 
+import com.ecommerce.common.event.OrderPaidEvent;
 import com.ecommerce.order.config.StripeProperties;
 import com.ecommerce.order.dto.CheckoutItemRequest;
 import com.ecommerce.order.dto.CheckoutRequest;
@@ -14,10 +16,11 @@ import com.ecommerce.order.dto.CheckoutResponse;
 import com.ecommerce.order.entity.Order;
 import com.ecommerce.order.entity.OrderItem;
 import com.ecommerce.order.entity.OrderStatus;
-import com.ecommerce.order.event.OrderPaidEvent;
 import com.ecommerce.order.repository.OrderRepository;
 import com.stripe.StripeClient;
 import com.stripe.exception.SignatureVerificationException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.stripe.model.Event;
 import com.stripe.model.checkout.Session;
 import com.stripe.net.Webhook;
@@ -72,10 +75,11 @@ public class OrderService {
     }
 
     @Transactional
-    public CheckoutResponse checkout(Long userId, CheckoutRequest request){
+    public CheckoutResponse checkout(Long userId, String sessionToken, CheckoutRequest request){
         Order order = new Order();
         order.setOrderNumber(generateOrderNumber());
         order.setUserId(userId);
+        order.setSessionToken(sessionToken);
 
         order.setShippingAddressId(request.getShippingAddressId());
         order.setDeliveryMode(request.getDeliveryMode());
@@ -179,52 +183,99 @@ public class OrderService {
         }
     }
 
-    @Transactional 
-    public void handleStripeWebhook(String payload, String sigHeader){
+    @Transactional
+    public void handleStripeWebhook(String payload, String sigHeader) {
         Event event;
-        try{
-
+        try {
             event = Webhook.constructEvent(payload, sigHeader, stripeProperties.getWebhookSecret());
-        }catch(SignatureVerificationException e){
+        } catch (SignatureVerificationException e) {
             log.error("Signature invalide pour le webhook Stripe : {}", e.getMessage());
             throw new IllegalArgumentException("Invalild Stripe signature : " + e.getMessage(), e);
         }
 
         log.info("Evènements Stripe reçu : {}", event.getType());
 
-        if ("checkout.session.completed".equals(event.getType())) {
-            Session session = (Session) event.getDataObjectDeserializer().getObject()
-                    .orElseThrow(() -> new IllegalStateException("Impossible de désérialiser la session Stripe"));
-            String sessionId = session.getId();
-            log.info("Traitement du paiement validé pour la session Stripe : {}", sessionId);
+        if (!"checkout.session.completed".equals(event.getType())) {
+            return;
+        }
 
-            Order order = orderRepository.findByStripeSessionId(sessionId)
-                .orElseThrow(() -> new IllegalArgumentException("Commande non trouvée pour la session Stripe : " + sessionId));
+        Session session;
+        try {
+            session = (Session) event.getDataObjectDeserializer().getObject()
+                .orElseThrow(() -> new IllegalStateException("Impossible de désérialiser la session Stripe pour cette version d'API"));
+        } catch (IllegalStateException e) {
+            log.warn("La session Stripe ne peut pas être désérialisée avec la version SDK actuelle ; fallback sur le payload brut : {}", e.getMessage());
+            session = getSessionFromRawPayload(payload);
+        }
 
-            if(order.getStatus() == OrderStatus.IN_PREPARATION){
-                log.info("Commande {} déja traitée, évènement ingoré.", order.getOrderNumber());
-                return;
-            }
+        if (session == null) {
+            throw new IllegalStateException("Impossible de récupérer la session Stripe depuis le webhook");
+        }
 
-            order.setStatus(OrderStatus.IN_PREPARATION);
-            orderRepository.save(order);
-             
-            OrderPaidEvent orderPaidEvent = OrderPaidEvent.builder()
-                .orderId(order.getId())
-                .orderNumber(order.getOrderNumber())
-                .userId(order.getUserId())
-                .sessionToken(null)
-                .build();
+        String paymentStatus = session.getPaymentStatus();
+        if (paymentStatus == null || !"paid".equalsIgnoreCase(paymentStatus)) {
+            log.info("Événement Stripe ignoré pour la session {} : payment_status={} ", session.getId(), paymentStatus);
+            return;
+        }
 
-            kafkaTemplate.send(orderPaidTopic, order.getOrderNumber(), orderPaidEvent);
+        String sessionId = session.getId();
+        log.info("Traitement du paiement validé pour la session Stripe : {}", sessionId);
 
-            log.info("Evènements OrderPaid publié sur Kafka pour la commande {} ", order.getOrderNumber());
+        Order order = orderRepository.findByStripeSessionId(sessionId)
+            .orElseThrow(() -> new IllegalArgumentException("Commande non trouvée pour la session Stripe : " + sessionId));
 
-            
+        if (order.getStatus() != OrderStatus.NEW) {
+            log.info("Commande {} non éligible au traitement du webhook (statut actuel : {}). Évènement ignoré.",
+                order.getOrderNumber(), order.getStatus());
+            return;
+        }
 
+        OrderPaidEvent orderPaidEvent = OrderPaidEvent.builder()
+            .orderId(order.getId())
+            .orderNumber(order.getOrderNumber())
+            .userId(order.getUserId())
+            .sessionToken(order.getSessionToken())
+            .totalInclTax(order.getTotalInclTax())
+            .build();
 
+        try {
+            kafkaTemplate.send(orderPaidTopic, order.getOrderNumber(), orderPaidEvent)
+                .get(5, TimeUnit.SECONDS);
+        } catch (Exception e) {
+            log.error("Échec de publication Kafka pour la commande {} : {}", order.getOrderNumber(), e.getMessage(), e);
+            throw new IllegalStateException("Impossible de publier l'évènement OrderPaid pour la commande " + order.getOrderNumber(), e);
+        }
+
+        order.setStatus(OrderStatus.IN_PREPARATION);
+        orderRepository.save(order);
+
+        log.info("Evènements OrderPaid publié sur Kafka pour la commande {} ", order.getOrderNumber());
     }
 
+    private Session getSessionFromRawPayload(String payload) {
+        try {
+            ObjectMapper objectMapper = new ObjectMapper();
+            JsonNode root = objectMapper.readTree(payload);
+            JsonNode dataNode = root.get("data");
+            if (dataNode == null || !dataNode.isObject()) {
+                return null;
+            }
+
+            JsonNode sessionNode = dataNode.get("object");
+            if (sessionNode == null || !sessionNode.isObject()) {
+                return null;
+            }
+
+            Session session = new Session();
+            session.setId(sessionNode.has("id") && !sessionNode.get("id").isNull() ? sessionNode.get("id").asText() : null);
+            session.setPaymentStatus(sessionNode.has("payment_status") && !sessionNode.get("payment_status").isNull()
+                ? sessionNode.get("payment_status").asText()
+                : null);
+            return session;
+        } catch (Exception e) {
+            log.warn("Fallback Stripe payload JSON invalid : {}", e.getMessage());
+            return null;
+        }
     }
 
 }
