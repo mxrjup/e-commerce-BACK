@@ -5,6 +5,8 @@ import java.time.Instant;
 import java.util.Objects;
 import java.util.UUID;
 
+import com.fasterxml.jackson.annotation.JsonFormat;
+
 import lombok.Builder;
 
 /**
@@ -18,13 +20,13 @@ import lombok.Builder;
 @Builder
 public record OrderPaidEvent(
         UUID eventId,
-        Instant occurredAt,
+        @JsonFormat(shape = JsonFormat.Shape.STRING) Instant occurredAt,
         Long orderId,
         String orderNumber,
         Long userId,
         String sessionToken,
         BigDecimal totalInclTax
-) {
+) implements DomainEvent {
 
     public OrderPaidEvent {
         Objects.requireNonNull(orderId, "orderId");
