@@ -47,7 +47,9 @@ services:
       KC_DB_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       KC_HEALTH_ENABLED: "true"
       KC_HTTP_ENABLED: "true"
-      # Lues par le realm importe, via les expressions ${env.*} du JSON.
+      # Lues par le realm importe, via ses expressions ${VARIABLE:defaut}.
+      # Sans prefixe « env. » : Keycloak ne le reconnait pas et prendrait
+      # toujours la valeur par defaut.
       # L'URL frontale fixe l'issuer des jetons : la meme valeur pour les
       # navigateurs et pour les services, sinon la validation echoue.
       KEYCLOAK_FRONTEND_URL: ${KEYCLOAK_FRONTEND_URL:-http://localhost:8180}
