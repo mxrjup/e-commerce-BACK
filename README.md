@@ -321,6 +321,51 @@ Si un service finit par exiger un runtime particulier, rien n'empêche de lui
 donner son propre Dockerfile : il suffira de repointer son `dockerfile:` dans
 le compose.
 
+### Publication sur GHCR
+
+Le workflow `.github/workflows/images.yml` (`D03` #54) construit les images et
+les pousse sur le registre de conteneurs de GitHub :
+
+```
+ghcr.io/mxrjup/e-commerce-back/<service>:<tag>
+```
+
+| Événement | Images construites | Poussées | Tags |
+|---|---|---|---|
+| Pull Request | services touchés | **non** | — |
+| push sur `dev` / `main` | **tous** les services | oui | `sha-<commit>`, `dev` ou `main` |
+| tag `vX.Y.Z` | **tous** les services | oui | `sha-<commit>`, `X.Y.Z`, `X.Y`, `latest` |
+
+**Sur une PR, l'image est construite sans être poussée** : un Dockerfile cassé
+se voit avant le merge, sans publier d'image d'un code pas encore relu. Un
+changement du `Dockerfile`, du `.dockerignore` ou du workflow reconstruit tous
+les services ; sinon les mêmes règles que la CI s'appliquent (voir plus bas).
+
+**Sur `dev` et `main`, tous les services sont poussés à chaque commit**, même
+ceux qui n'ont pas changé : un `sha-<commit>` désigne ainsi toujours un jeu
+d'images complet, et un déploiement (`D04` #88, `D05` #38) n'a qu'un tag à
+connaître. Le cache de couches de GitHub Actions rend la reconstruction d'un
+service inchangé rapide.
+
+**Le tag `vX.Y.Z` posé sur `main`** à la release ajoute les tags de version,
+ceux qu'un déploiement de production doit utiliser. `latest` ne suit que ces
+tags, jamais `dev`.
+
+Le workflow pousse avec le `GITHUB_TOKEN` (permission `packages: write`) :
+aucun secret à créer. **Visibilité** : un paquet GHCR est privé à sa création.
+Pour que le cluster tire les images sans identifiants, le rendre public une
+fois (*Package settings* → *Change visibility*), ou donner au cluster un
+`imagePullSecret` (voir `D04`).
+
+Un service est reconnu à son `spring-boot-maven-plugin` : un nouveau service
+déclaré dans les `<modules>` du POM racine a donc son image sans toucher au
+workflow. Son port vient du `server.port` de son `application.yml`. Pour voir
+ce qu'une branche construirait :
+
+```bash
+.github/scripts/image-modules.sh origin/dev HEAD
+```
+
 ## Intégration continue
 
 GitHub Actions (`.github/workflows/ci.yml`) construit et teste le back-end à
