@@ -1,0 +1,152 @@
+# Images Docker des services sur GHCR (D03 #54).
+#
+#   Pull Request        : construit les images des services touches, sans les
+#                         pousser. Le Dockerfile est verifie avant le merge.
+#   push sur dev / main : construit et pousse TOUS les services, tagges par le
+#                         SHA du commit et par la branche.
+#   tag vX.Y.Z          : idem, avec les tags de version (X.Y.Z, X.Y, latest).
+#
+# Pousser chaque service a chaque commit de dev et main garantit qu'un SHA
+# designe toujours un jeu d'images complet : un deploiement (D05) n'a pas a
+# chercher dans quel commit chaque service a ete construit pour la derniere fois.
+#
+# Images : ghcr.io/<proprietaire>/<depot>/<service>, en minuscules, par exemple
+# ghcr.io/mxrjup/e-commerce-back/cart-service:sha-1a2b3c4.
+name: Images
+
+on:
+  pull_request:
+    branches: [dev, main]
+  push:
+    branches: [dev, main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+concurrency:
+  group: images-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  services:
+    name: Services a construire
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      services: ${{ steps.services.outputs.services }}
+      image-prefix: ${{ steps.services.outputs.image-prefix }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - id: services
+        name: Calculer les services
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          if [[ "$EVENT" == pull_request ]]; then
+            services=$(.github/scripts/image-modules.sh "$BASE" "$HEAD_SHA")
+          else
+            services=$(.github/scripts/image-modules.sh all)
+          fi
+          echo "services=$services" >> "$GITHUB_OUTPUT"
+          # GHCR n'accepte que des noms en minuscules : e-commerce-BACK n'en est pas un.
+          echo "image-prefix=ghcr.io/${REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+          echo "Services : \`$services\`" >> "$GITHUB_STEP_SUMMARY"
+
+  image:
+    name: ${{ matrix.service.module }}
+    needs: services
+    if: needs.services.outputs.services != '[]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      # Pousser sur GHCR avec le GITHUB_TOKEN, sans secret a gerer.
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJSON(needs.services.outputs.services) }}
+    env:
+      IMAGE: ${{ needs.services.outputs.image-prefix }}/${{ matrix.service.module }}
+      # Une PR ne pousse jamais : ni image a moitie relue sur GHCR, ni jeton
+      # d'ecriture pour du code pas encore merge.
+      PUSH: ${{ github.event_name != 'pull_request' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Connexion a GHCR
+        if: env.PUSH == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        name: Tags et labels
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=sha,prefix=sha-
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+          flavor: |
+            latest=${{ startsWith(github.ref, 'refs/tags/v') }}
+          labels: |
+            org.opencontainers.image.title=${{ matrix.service.module }}
+
+      - name: Construire${{ env.PUSH == 'true' && ' et pousser' || '' }}
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          build-args: |
+            MODULE=${{ matrix.service.module }}
+            SERVER_PORT=${{ matrix.service.port }}
+          push: ${{ env.PUSH == 'true' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # Cache des couches par service dans le cache GitHub Actions : les
+          # dependances Maven ne sont retelechargees que si un POM change.
+          cache-from: type=gha,scope=${{ matrix.service.module }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service.module }}
+
+      - name: Resume
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          {
+            echo "### ${{ matrix.service.module }}"
+            if [[ "$PUSH" == true ]]; then echo "Poussee sur GHCR :"; else echo "Construite, non poussee (PR) :"; fi
+            echo '```'
+            echo "$TAGS"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  images:
+    name: Images
+    if: always()
+    needs: [services, image]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Resultat
+        env:
+          SERVICES: ${{ needs.services.result }}
+          IMAGE: ${{ needs.image.result }}
+        run: |
+          echo "services=$SERVICES image=$IMAGE"
+          [[ "$SERVICES" == success ]] || exit 1
+          [[ "$IMAGE" == success || "$IMAGE" == skipped ]] || exit 1
