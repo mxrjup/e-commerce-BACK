@@ -1,42 +1,42 @@
 package com.ecommerce.order.repository;
 
+import com.ecommerce.order.entity.Order;
+import com.ecommerce.order.entity.OrderStatus;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.stereotype.Repository;
+
+import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 
-import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.data.jpa.repository.Query;
-import org.springframework.stereotype.Repository;
-import java.util.List;
-import com.ecommerce.order.entity.Order;
-
 @Repository
-public interface OrderRepository extends JpaRepository<Order, Long>{
+public interface OrderRepository extends JpaRepository<Order, Long> {
 
-      /**
-     * Find all order made by the authenticated user ID.
-     * Spring Data automatically generates:
-     * SELECT * FROM commande WHERE utilisateur_id = ?
+    /**
+     * Find all orders made by the authenticated user ID.
      */
     List<Order> findByUserId(Long userId);
 
-
-     /**
-     * Find the order with the associated orderNumber.
-     * Spring Data automatically generates:
-     * SELECT * FROM commande WHERE numero = ?
+    /**
+     * Find the order with the associated order number.
      */
     Optional<Order> findByOrderNumber(String orderNumber);
 
-
     /**
-     * Find the last order made for a year (ex : prefix "CMD-2026-")
-     * In order to allow the order generator to increase the number
-     * SELECT * 
-        FROM commande 
-        WHERE numero LIKE 'CMD-2026-%' 
-        ORDER BY numero DESC 
-        LIMIT 1;
+     * Find the last order made for a given year prefix.
      */
     Optional<Order> findFirstByOrderNumberStartingWithOrderByOrderNumberDesc(String prefix);
 
+    
+    List<Order> findByStatus(OrderStatus status);
 
+    List<Order> findByStatusAndCreatedAtBetween(OrderStatus status, Instant from, Instant to);
+
+    List<Order> findByCreatedAtBetween(Instant from, Instant to);
+
+    List<Order> findByUserIdAndCreatedAtBetween(Long userId, Instant from, Instant to);
+
+    List<Order> findByUserIdAndStatus(Long userId, OrderStatus status);
+
+    List<Order> findByUserIdAndStatusAndCreatedAtBetween(Long userId, OrderStatus status, Instant from, Instant to);
 }
