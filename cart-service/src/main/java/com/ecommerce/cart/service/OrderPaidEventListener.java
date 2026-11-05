@@ -22,34 +22,34 @@ public class OrderPaidEventListener {
     @KafkaListener(topics = "${app.kafka.topics.order-paid:order.paid}", groupId = "cart-service")
     @Transactional
     public void handleOrderPaid(OrderPaidEvent event) {
-        if (event == null || event.getOrderId() == null) {
+        if (event == null || event.orderId() == null) {
             log.warn("OrderPaidEvent invalide reçu par cart-service : {}", event);
             return;
         }
 
-        if (processedOrderEventRepository.existsByOrderId(event.getOrderId())) {
-            log.info("Événement OrderPaid déjà traité pour la commande {}", event.getOrderId());
+        if (processedOrderEventRepository.existsByOrderId(event.orderId())) {
+            log.info("Événement OrderPaid déjà traité pour la commande {}", event.orderId());
             return;
         }
 
-        if (event.getUserId() != null) {
-            Optional<Cart> userCart = cartRepository.findByUserIdWithItems(event.getUserId());
+        if (event.userId() != null) {
+            Optional<Cart> userCart = cartRepository.findByUserIdWithItems(event.userId());
             userCart.ifPresent(cart -> {
                 cart.clearItems();
                 cartRepository.save(cart);
             });
         }
 
-        if (event.getSessionToken() != null && !event.getSessionToken().isBlank()) {
-            Optional<Cart> guestCart = cartRepository.findBySessionTokenWithItems(event.getSessionToken());
+        if (event.sessionToken() != null && !event.sessionToken().isBlank()) {
+            Optional<Cart> guestCart = cartRepository.findBySessionTokenWithItems(event.sessionToken());
             guestCart.ifPresent(cart -> {
                 cart.clearItems();
                 cartRepository.save(cart);
             });
         }
 
-        processedOrderEventRepository.save(new ProcessedOrderEvent(event.getOrderId()));
+        processedOrderEventRepository.save(new ProcessedOrderEvent(event.orderId()));
         log.info("Panier nettoyé après paiement de la commande {} pour userId={} sessionToken={}",
-            event.getOrderId(), event.getUserId(), event.getSessionToken());
+            event.orderId(), event.userId(), event.sessionToken());
     }
 }
