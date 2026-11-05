@@ -17,6 +17,7 @@ import org.springframework.boot.test.mock.mockito.MockBean;
 import com.ecommerce.order.dto.CheckoutItemRequest;
 import com.ecommerce.order.dto.CheckoutRequest;
 import com.ecommerce.order.dto.CheckoutResponse;
+import com.ecommerce.order.dto.OrderResponse;
 import com.ecommerce.order.client.CatalogClient;
 import com.ecommerce.order.client.CatalogVariantResponse;
 import com.stripe.StripeClient;
