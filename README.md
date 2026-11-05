@@ -352,10 +352,8 @@ ceux qu'un déploiement de production doit utiliser. `latest` ne suit que ces
 tags, jamais `dev`.
 
 Le workflow pousse avec le `GITHUB_TOKEN` (permission `packages: write`) :
-aucun secret à créer. **Visibilité** : un paquet GHCR est privé à sa création.
-Pour que le cluster tire les images sans identifiants, le rendre public une
-fois (*Package settings* → *Change visibility*), ou donner au cluster un
-`imagePullSecret` (voir `D04`).
+aucun secret à créer. **Visibilité** : les paquets héritent de celle du dépôt,
+public ; le cluster les tire donc sans identifiants (vérifié au premier push).
 
 Un service est reconnu à son `spring-boot-maven-plugin` : un nouveau service
 déclaré dans les `<modules>` du POM racine a donc son image sans toucher au
