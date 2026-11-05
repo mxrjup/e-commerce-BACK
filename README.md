@@ -206,6 +206,7 @@ où personne ne lira jamais rien.
 | Module | Domaine | Issues | Port | État |
 |---|---|---|---|---|
 | `common-lib` | Librairie partagée (contrat d'erreur HTTP, événements Kafka) | `T01`, `K02` | — | en place |
+| `common-test` | Outillage de test partagé (tests d'intégration Kafka) | `K04` | — | en place |
 | `cart-service` | Panier | `P*` | 8083 | en place |
 | `catalog-service` | Catalogue, stock, avis | `C*` | 8081 | à créer |
 | `user-service` | Utilisateurs, adresses, collaborateurs | `U*` | 8082 | à créer |
@@ -331,8 +332,8 @@ chaque Pull Request vers `dev` ou `main`, et à chaque merge sur ces branches.
 | Changement | Modules construits |
 |---|---|
 | `<module>/**` | ce module |
-| `common-lib/**`, `pom.xml` racine, `mvnw`, `.mvn/**`, la CI elle-même | tous |
-| le reste : README, `compose.yaml`, `docker/`, `Dockerfile`… | aucun |
+| `common-lib/**`, `common-test/**`, `docker/kafka/create-topics.sh`, `pom.xml` racine, `mvnw`, `.mvn/**`, la CI elle-même | tous |
+| le reste : README, `compose.yaml`, le reste de `docker/`, `Dockerfile`… | aucun |
 
 Chaque job construit d'abord les modules dont il dépend (POM parent,
 `common-lib`) sans leurs tests, puis lance `./mvnw -pl <module> verify`. Sans
@@ -351,6 +352,10 @@ d'eux bloquerait toute PR qui ne le touche pas.
 
 En cas d'échec, les rapports Surefire du module sont joints au run
 (`surefire-<module>`, gardés 7 jours).
+
+Les tests d'intégration Kafka tournent dans la CI sur un vrai broker (voir
+« Tests d'intégration Kafka ») : Docker y est disponible, et ils **échouent**
+au lieu d'être ignorés s'il ne l'est pas.
 
 ## Ajouter un service
 
@@ -549,6 +554,74 @@ docker exec ecommerce-kafka /opt/kafka/bin/kafka-console-consumer.sh \
   --bootstrap-server localhost:9092 --topic order.paid.dlt --from-beginning \
   --property print.key=true --property print.headers=true
 ```
+
+## Tests d'intégration Kafka
+
+Les tests unitaires appellent un listener à la main. Les tests d'intégration
+vérifient le reste : le vrai broker, la sérialisation JSON partagée, le rejeu
+et le DLT. `common-test` (`K04`) en fournit le modèle.
+
+```java
+class OrderPaidKafkaIntegrationTest extends KafkaIntegrationTest {
+
+    @Autowired KafkaTemplate<Object, Object> kafkaTemplate;
+
+    @Test
+    void shouldEmptyTheCartOfAPaidOrder() throws Exception {
+        kafkaTemplate.send("order.paid", event.orderNumber(), event).get();
+
+        await().atMost(Duration.ofSeconds(30))
+               .untilAsserted(() -> assertThat(itemsInCartOf(userId)).isZero());
+    }
+}
+```
+
+L'exemple complet, à recopier pour un autre consommateur :
+`cart-service/src/test/java/com/ecommerce/cart/kafka/OrderPaidKafkaIntegrationTest.java`.
+Il couvre le cas nominal, la **double publication** d'un même paiement, et un
+**message illisible** qui part au DLT sans bloquer le message suivant.
+
+Pour l'utiliser dans un service, une dépendance de test suffit :
+
+```xml
+<dependency>
+    <groupId>com.ecommerce</groupId>
+    <artifactId>common-test</artifactId>
+    <version>${project.version}</version>
+    <scope>test</scope>
+</dependency>
+```
+
+| Élément | Rôle |
+|---|---|
+| `KafkaIntegrationTest` | classe de base : `@SpringBootTest` branché sur le broker de test |
+| `KafkaTestContainer` | **un seul broker** pour tous les tests de la JVM, démarré au premier usage |
+| `KafkaTestRecords` | publier des octets bruts (producteur défaillant), attendre un message dans un DLT |
+
+**Le broker de test est celui de la prod** : même image `apache/kafka:3.8.1`,
+auto-création des topics **coupée**, et topics créés en jouant
+**`docker/kafka/create-topics.sh` lui-même**, pas une copie de sa liste. Un
+topic oublié dans le script fait donc échouer le test, comme il ferait échouer
+le service déployé. C'est aussi pourquoi un changement de ce script relance
+tous les modules dans la CI.
+
+**Le broker est partagé** par toutes les classes de test : ses topics et les
+offsets des consumer groups persistent d'un test à l'autre. Chaque test
+utilise donc ses propres identifiants (clé, numéro de commande, utilisateur) ;
+`KafkaTestRecords.awaitDeadLetter` filtre le DLT par clé pour cette raison.
+
+**Le rejeu garde ses 3 tentatives**, mais attend 100 ms au lieu de 1 s : un
+test qui envoie un message au DLT prend une seconde, pas sept.
+
+**Docker est requis.** Sans lui, ces tests sont **ignorés** sur un poste, pour
+que le build passe quand même, et **échouent dans la CI** (variable `CI=true`,
+posée par GitHub Actions) : un environnement cassé ne doit pas produire un
+build vert qui n'a rien testé. `CI=true ./mvnw verify` reproduit ce
+comportement en local.
+
+Testcontainers est en **1.21** et non dans la version du BOM Spring Boot
+(1.19.8) : celle-ci parle l'API Docker 1.32, que Docker Engine 29 refuse, et
+les tests étaient alors tous ignorés sans bruit.
 
 ## Conventions
 
