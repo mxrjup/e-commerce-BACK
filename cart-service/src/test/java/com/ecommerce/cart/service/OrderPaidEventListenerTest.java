@@ -1,7 +1,9 @@
 package com.ecommerce.cart.service;
 
 import com.ecommerce.cart.entity.Cart;
+import com.ecommerce.cart.entity.ProcessedOrderEvent;
 import com.ecommerce.cart.repository.CartRepository;
+import com.ecommerce.cart.repository.ProcessedOrderEventRepository;
 import com.ecommerce.common.event.OrderPaidEvent;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;

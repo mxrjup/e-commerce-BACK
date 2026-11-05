@@ -24,8 +24,8 @@ public class OrderPaidEventConsumer {
         groupId = "${spring.kafka.consumer.group-id:cart-service}"
     )
     public void handleOrderPaid(OrderPaidEvent event){
-        log.info("received order paid event for orderId : {}, userId: {}", event.getOrderId(), event.getUserId());
-        cartService.clearCartOnOrderPaid(event.getUserId(), event.getSessionToken(), event.getOrderId());
+        log.info("received order paid event for orderId : {}, userId: {}", event.orderId(), event.userId());
+        cartService.clearCartOnOrderPaid(event.userId(), event.sessionToken(), event.orderId());
     }
   
 }

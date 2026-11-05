@@ -24,7 +24,7 @@ public record OrderPaidEvent(
         Long userId,
         String sessionToken,
         BigDecimal totalInclTax
-) implements DomainEvent {
+) {
 
     public OrderPaidEvent {
         Objects.requireNonNull(orderId, "orderId");
