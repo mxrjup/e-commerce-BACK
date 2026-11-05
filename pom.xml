@@ -22,6 +22,7 @@
    
     <modules>
         <module>common-lib</module>
+        <module>common-test</module>
         <module>api-gateway</module>
         <module>cart-service</module>
         <module>order-service</module>
