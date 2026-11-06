@@ -9,7 +9,6 @@ import com.ecommerce.cart.repository.CartRepository;
 import com.ecommerce.cart.repository.ProcessedOrderEventRepository;
 import com.ecommerce.common.exception.ResourceNotFoundException;
 import lombok.RequiredArgsConstructor;
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -154,39 +153,4 @@ public class CartService {
         return CartResponse.fromEntity(savedCart);
     }
 
-    public void clearCartOnOrderPaid(Long userId, String sessionToken) {
-        clearCartOnOrderPaid(userId, sessionToken, null);
-    }
-
-    public void clearCartOnOrderPaid(Long userId, String sessionToken, Long orderId) {
-        if (orderId != null) {
-            if (processedOrderEventRepository.existsByOrderId(orderId)) {
-                return;
-            }
-
-            try {
-                processedOrderEventRepository.save(new ProcessedOrderEvent(orderId));
-            } catch (DataIntegrityViolationException ignored) {
-                return;
-            }
-        }
-
-        if (userId == null && (sessionToken == null || sessionToken.trim().isEmpty())) {
-            return;
-        }
-
-        if (userId != null) {
-            cartRepository.findByUserIdWithItems(userId).ifPresent(cart -> {
-                cart.clearItems();
-                cartRepository.save(cart);
-            });
-        }
-
-        if (sessionToken != null && !sessionToken.trim().isEmpty()) {
-            cartRepository.findBySessionTokenWithItems(sessionToken.trim()).ifPresent(cart -> {
-                cart.clearItems();
-                cartRepository.save(cart);
-            });
-        }
-    }
 }
