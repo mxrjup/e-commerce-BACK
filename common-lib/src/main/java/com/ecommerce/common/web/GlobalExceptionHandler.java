@@ -1,6 +1,7 @@
 package com.ecommerce.common.web;
 
 import com.ecommerce.common.api.ErrorResponse;
+import com.ecommerce.common.exception.ConflictException;
 import com.ecommerce.common.exception.ResourceNotFoundException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -47,6 +48,12 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     public ResponseEntity<ErrorResponse> handleResourceNotFound(ResourceNotFoundException ex) {
         ErrorResponse body = errorResponse(HttpStatus.NOT_FOUND, ex.getMessage(), null);
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(body);
+    }
+
+    @ExceptionHandler(ConflictException.class)
+    public ResponseEntity<ErrorResponse> handleConflict(ConflictException ex) {
+        ErrorResponse body = errorResponse(HttpStatus.CONFLICT, ex.getMessage(), null);
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(body);
     }
 
     @ExceptionHandler(Exception.class)
