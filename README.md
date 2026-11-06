@@ -352,10 +352,8 @@ ceux qu'un déploiement de production doit utiliser. `latest` ne suit que ces
 tags, jamais `dev`.
 
 Le workflow pousse avec le `GITHUB_TOKEN` (permission `packages: write`) :
-aucun secret à créer. **Visibilité** : un paquet GHCR est privé à sa création.
-Pour que le cluster tire les images sans identifiants, le rendre public une
-fois (*Package settings* → *Change visibility*), ou donner au cluster un
-`imagePullSecret` (voir `D04`).
+aucun secret à créer. **Visibilité** : les paquets héritent de celle du dépôt,
+public ; le cluster les tire donc sans identifiants (vérifié au premier push).
 
 Un service est reconnu à son `spring-boot-maven-plugin` : un nouveau service
 déclaré dans les `<modules>` du POM racine a donc son image sans toucher au
@@ -365,6 +363,70 @@ ce qu'une branche construirait :
 ```bash
 .github/scripts/image-modules.sh origin/dev HEAD
 ```
+
+### Déploiement en production
+
+Le workflow `.github/workflows/deploy.yml` (`D05` #38) déploie une version sur
+le cluster :
+
+| Déclencheur | Ce qui est déployé |
+|---|---|
+| tag `vX.Y.Z` poussé sur `main` | cette version, dès que le workflow `Images` a fini de la publier |
+| *Actions* → *Deploy* → *Run workflow* | la version saisie : **revenir à une version précédente**, ou redéployer la courante |
+
+Le rollback n'est donc pas une opération à part : c'est le déploiement d'un tag
+plus ancien, toujours présent sur GHCR puisqu'un tag ne se déplace ni ne se
+supprime jamais.
+
+**Ce que fait un déploiement**, dans `.github/scripts/deploy.sh` :
+
+1. il refuse un tag absent, ou posé ailleurs que sur `main` ;
+2. il vérifie que l'image de **chaque** service existe pour cette version,
+   avant de toucher au cluster ;
+3. il passe chaque service sur le **digest** de son image
+   (`X.Y.Z@sha256:…`), pas sur un tag ;
+4. il attend chaque rollout. **Si un seul échoue, tous les services de ce
+   déploiement reviennent à leur version précédente**, et le workflow échoue ;
+5. il enregistre la version déployée dans le ConfigMap `ecommerce-release`.
+
+Testé sur un cluster k3s aux contraintes de l'école, avec une version dont
+`cart-service` plante au démarrage : les trois services sont revenus à la
+version précédente. Pendant tout le déploiement raté et son retour arrière,
+196 requêtes sur 197 vers le panier ont abouti ; l'ancienne version a servi
+tant que la nouvelle n'était pas prête.
+
+```bash
+kubectl get configmap ecommerce-release -o jsonpath='{.data.version}'   # version en production
+kubectl rollout history deployment/cart-service                         # « deploy vX.Y.Z » par révision
+```
+
+**Le workflow ne s'active qu'une fois sur `main`** : GitHub ne lance un
+workflow `workflow_run` ou `workflow_dispatch` que depuis la branche par
+défaut. Il arrive donc avec la première release, et c'est elle qui fera le
+premier déploiement.
+
+**À configurer une fois**, dans *Settings* → *Environments* : un environnement
+**`production`**, avec le secret **`KUBECONFIG`** (le contenu du kubeconfig du
+namespace). Y ajouter des *Required reviewers* fait attendre chaque
+déploiement d'une approbation. Le secret n'est lisible que par ce job.
+
+**Si le cluster n'est pas joignable depuis GitHub** (API réservée au réseau de
+l'école), le même script se lance depuis un poste, avec le même résultat :
+
+```bash
+KUBECONFIG=~/.kube/ecole.yaml .github/scripts/deploy.sh v1.2.0
+```
+
+**Avec les manifests d'INFRA.** Le script change la version des services
+existants ; il ne crée ni ne modifie rien d'autre. Un `kubectl apply -k`
+d'INFRA remet les images au tag de son `kustomization.yaml` (`dev` pour
+l'instant) : redéployer ensuite la version en production,
+
+```bash
+.github/scripts/deploy.sh "$(kubectl get configmap ecommerce-release -o jsonpath='{.data.version}')"
+```
+
+ou faire lire ce ConfigMap par le déploiement d'INFRA.
 
 ## Intégration continue
 
