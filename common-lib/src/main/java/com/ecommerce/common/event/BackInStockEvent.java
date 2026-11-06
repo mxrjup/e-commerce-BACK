@@ -4,6 +4,8 @@ import java.time.Instant;
 import java.util.Objects;
 import java.util.UUID;
 
+import com.fasterxml.jackson.annotation.JsonFormat;
+
 import lombok.Builder;
 
 /**
@@ -12,7 +14,7 @@ import lombok.Builder;
 @Builder
 public record BackInStockEvent(
         UUID eventId,
-        Instant occurredAt,
+        @JsonFormat(shape = JsonFormat.Shape.STRING) Instant occurredAt,
         Long productId,
         Long variantId,
         int availableQuantity

@@ -4,6 +4,8 @@ import java.time.Instant;
 import java.util.Objects;
 import java.util.UUID;
 
+import com.fasterxml.jackson.annotation.JsonFormat;
+
 import lombok.Builder;
 
 /**
@@ -14,7 +16,7 @@ import lombok.Builder;
 @Builder
 public record SupportAdminReplyEvent(
         UUID eventId,
-        Instant occurredAt,
+        @JsonFormat(shape = JsonFormat.Shape.STRING) Instant occurredAt,
         Long ticketId,
         Long userId,
         String ticketSubject

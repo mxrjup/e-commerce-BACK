@@ -1,5 +1,6 @@
-package com.ecommerce.cart.service;
+package com.ecommerce.cart.repository;
 
+import com.ecommerce.cart.entity.ProcessedOrderEvent;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
