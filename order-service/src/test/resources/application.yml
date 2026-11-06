@@ -13,3 +13,8 @@ spring:
       hibernate:
         format_sql: true
     open-in-view: false
+
+stripe:
+  api-key: sk_test_placeholder
+  webhook-secret: whsec_test_secret
+

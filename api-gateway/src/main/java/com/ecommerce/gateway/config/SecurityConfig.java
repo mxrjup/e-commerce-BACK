@@ -54,6 +54,9 @@ public class SecurityConfig {
                         // Parcourir le catalogue ne demande pas de compte. En
                         // lecture seulement : rien d'autre n'y est public.
                         .pathMatchers(HttpMethod.GET, "/api/catalog/**").permitAll()
+                        // Stripe doit pouvoir appeler le webhook sans bearer token,
+                        // mais uniquement pour cette route et ce verbe.
+                        .pathMatchers(HttpMethod.POST, "/api/orders/webhook").permitAll()
                         // « admin » inclut « collaborator » cote Keycloak ; les deux
                         // sont listes pour ne pas dependre de ce composite.
                         .pathMatchers("/api/admin/**").hasAnyRole("collaborator", "admin")
