@@ -77,6 +77,31 @@ services:
       start_period: 20s
     restart: unless-stopped
 
+  # Interface web de Kafka (K03 #76) : topics, messages, consumer groups et
+  # leur retard, DLT. Ecriture autorisee en local, pour publier un message de
+  # test ; elle est en lecture seule sur le cluster (e-commerce-INFRA).
+  kafka-ui:
+    image: ghcr.io/kafbat/kafka-ui:v1.4.2
+    container_name: ecommerce-kafka-ui
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+      # Configuration figee par ces variables, pas modifiable depuis l'UI.
+      DYNAMIC_CONFIG_ENABLED: "false"
+    ports:
+      # 8080 est pris par la gateway.
+      - "${KAFKA_UI_PORT:-8090}:8080"
+    depends_on:
+      kafka:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/actuator/health | grep -q UP"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    restart: unless-stopped
+
   kafka:
     image: apache/kafka:3.8.1
     container_name: ecommerce-kafka
