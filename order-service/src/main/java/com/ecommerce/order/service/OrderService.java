@@ -126,6 +126,7 @@ public class OrderService {
                 .setMode(SessionCreateParams.Mode.PAYMENT)
                 .setSuccessUrl(stripeProperties.getSuccessUrl())
                 .setCancelUrl(stripeProperties.getCancelUrl())
+                .addPaymentMethodType(SessionCreateParams.PaymentMethodType.CARD)
                 .putMetadata("orderNumber", order.getOrderNumber());
 
             for (OrderItem item : order.getItems()) {
@@ -197,7 +198,8 @@ public class OrderService {
 
         log.info("Evènements Stripe reçu : {}", event.getType());
 
-        if (!"checkout.session.completed".equals(event.getType())) {
+        if (!("checkout.session.completed".equals(event.getType())
+            || "checkout.session.async_payment_succeeded".equals(event.getType()))) {
             return;
         }
 

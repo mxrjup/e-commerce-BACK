@@ -187,6 +187,29 @@ class OrderServiceTest {
     }
 
     @Test
+    @DisplayName("Checkout restricts Stripe session to card payments")
+    void testCheckout_StripeSessionUsesCardOnly() throws Exception {
+        Session mockSession = mock(Session.class);
+        when(mockSession.getId()).thenReturn("cs_test_card_only");
+        when(mockSession.getUrl()).thenReturn("https://checkout.stripe.com/pay/cs_test_card_only");
+
+        org.mockito.ArgumentCaptor<SessionCreateParams> paramsCaptor =
+            org.mockito.ArgumentCaptor.forClass(SessionCreateParams.class);
+        when(stripeClient.checkout().sessions().create(paramsCaptor.capture())).thenReturn(mockSession);
+
+        when(catalogClient.getVariant(40L)).thenReturn(
+            new CatalogVariantResponse(40L, "Chargeur USB-C", new BigDecimal("15.00"), new BigDecimal("20.00"))
+        );
+
+        CheckoutRequest request = new CheckoutRequest(100L, DeliveryMode.STANDARD, List.of(new CheckoutItemRequest(40L, 1)));
+        orderService.checkout(1L, null, request);
+
+        SessionCreateParams params = paramsCaptor.getValue();
+        assertTrue(params.getPaymentMethodTypes().contains(SessionCreateParams.PaymentMethodType.CARD));
+        assertEquals(List.of(SessionCreateParams.PaymentMethodType.CARD), params.getPaymentMethodTypes());
+    }
+
+    @Test
     @DisplayName("Checkout throws IllegalArgumentException when variant is not found in catalog")
     void testCheckout_VariantNotFound_ThrowsException() {
         when(catalogClient.getVariant(999L)).thenReturn(null);
@@ -195,6 +218,28 @@ class OrderServiceTest {
         CheckoutRequest request = new CheckoutRequest(100L, DeliveryMode.STANDARD, List.of(item));
 
         assertThrows(IllegalArgumentException.class, () -> orderService.checkout(1L, null, request));
+    }
+
+    @Test
+    @DisplayName("Webhook accepts async payment success events for deferred Stripe payments")
+    void testHandleStripeWebhook_AsyncPaymentSucceeded() throws Exception {
+        Order order = new Order();
+        order.setUserId(1L);
+        order.setOrderNumber("CMD-2026-000104");
+        order.setStatus(OrderStatus.NEW);
+        order.setStripeSessionId("cs_test_async_success");
+        orderRepository.save(order);
+
+        String payload = "{\"id\":\"evt_129\",\"object\":\"event\",\"api_version\":\"" + com.stripe.Stripe.API_VERSION + "\",\"type\":\"checkout.session.async_payment_succeeded\",\"data\":{\"object\":{\"id\":\"cs_test_async_success\",\"object\":\"checkout.session\",\"payment_status\":\"paid\"}}}";
+        String sigHeader = generateStripeSignature(payload, stripeProperties.getWebhookSecret());
+        when(kafkaTemplate.send(eq("order.paid"), eq("CMD-2026-000104"), any(OrderPaidEvent.class)))
+            .thenReturn(CompletableFuture.completedFuture(mock(SendResult.class)));
+
+        orderService.handleStripeWebhook(payload, sigHeader);
+
+        Order updated = orderRepository.findByStripeSessionId("cs_test_async_success").orElseThrow();
+        assertEquals(OrderStatus.IN_PREPARATION, updated.getStatus());
+        verify(kafkaTemplate).send(eq("order.paid"), eq("CMD-2026-000104"), any(OrderPaidEvent.class));
     }
 
     @Test
