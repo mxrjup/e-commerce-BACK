@@ -1,0 +1,19 @@
+spring:
+  application:
+    name: catalog-service
+
+  datasource:
+    url: jdbc:h2:mem:catalogtest;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: ""
+
+  # Les tests passent par les vraies migrations, et Hibernate verifie que les
+  # entites leur correspondent : un ecart entre les deux fait echouer le build.
+  flyway:
+    enabled: true
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
