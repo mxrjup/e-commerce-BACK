@@ -23,11 +23,15 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
     Optional<Order> findByOrderNumber(String orderNumber);
 
     /**
+     * Find the order by its Stripe checkout session ID.
+     */
+    Optional<Order> findByStripeSessionId(String stripeSessionId);
+
+    /**
      * Find the last order made for a given year prefix.
      */
     Optional<Order> findFirstByOrderNumberStartingWithOrderByOrderNumberDesc(String prefix);
 
-    
     List<Order> findByStatus(OrderStatus status);
 
     List<Order> findByStatusAndCreatedAtBetween(OrderStatus status, Instant from, Instant to);

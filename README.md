@@ -4,6 +4,21 @@ Monorepo Maven multi-modules : un module par microservice, plus une librairie
 commune. Un seul POM parent fixe les versions, un seul `./mvnw clean verify`
 construit et teste l'ensemble.
 
+## Démarrage rapide
+
+```bash
+docker compose up -d                                # PostgreSQL, Keycloak, Kafka
+./mvnw clean install -DskipTests                    # construit common-lib et les services
+./mvnw -pl api-gateway spring-boot:run              # puis un terminal par service :
+./mvnw -pl cart-service spring-boot:run
+curl -i http://localhost:8080/api/cart              # 200, panier invité, via la gateway
+```
+
+Ou toute la pile en conteneurs : `docker compose --profile services up -d --build`.
+
+**Mettre en production, revenir en arrière, et la liste des variables
+d'environnement de chaque service** : [`docs/deploiement.md`](docs/deploiement.md).
+
 ## Prérequis
 
 - **JDK 21** (version imposée par le POM parent)
@@ -320,6 +335,113 @@ machine hôte. Les images pèsent environ 380 Mo.
 Si un service finit par exiger un runtime particulier, rien n'empêche de lui
 donner son propre Dockerfile : il suffira de repointer son `dockerfile:` dans
 le compose.
+
+### Publication sur GHCR
+
+Le workflow `.github/workflows/images.yml` (`D03` #54) construit les images et
+les pousse sur le registre de conteneurs de GitHub :
+
+```
+ghcr.io/mxrjup/e-commerce-back/<service>:<tag>
+```
+
+| Événement | Images construites | Poussées | Tags |
+|---|---|---|---|
+| Pull Request | services touchés | **non** | — |
+| push sur `dev` / `main` | **tous** les services | oui | `sha-<commit>`, `dev` ou `main` |
+| tag `vX.Y.Z` | **tous** les services | oui | `sha-<commit>`, `X.Y.Z`, `X.Y`, `latest` |
+
+**Sur une PR, l'image est construite sans être poussée** : un Dockerfile cassé
+se voit avant le merge, sans publier d'image d'un code pas encore relu. Un
+changement du `Dockerfile`, du `.dockerignore` ou du workflow reconstruit tous
+les services ; sinon les mêmes règles que la CI s'appliquent (voir plus bas).
+
+**Sur `dev` et `main`, tous les services sont poussés à chaque commit**, même
+ceux qui n'ont pas changé : un `sha-<commit>` désigne ainsi toujours un jeu
+d'images complet, et un déploiement (`D04` #88, `D05` #38) n'a qu'un tag à
+connaître. Le cache de couches de GitHub Actions rend la reconstruction d'un
+service inchangé rapide.
+
+**Le tag `vX.Y.Z` posé sur `main`** à la release ajoute les tags de version,
+ceux qu'un déploiement de production doit utiliser. `latest` ne suit que ces
+tags, jamais `dev`.
+
+Le workflow pousse avec le `GITHUB_TOKEN` (permission `packages: write`) :
+aucun secret à créer. **Visibilité** : les paquets héritent de celle du dépôt,
+public ; le cluster les tire donc sans identifiants (vérifié au premier push).
+
+Un service est reconnu à son `spring-boot-maven-plugin` : un nouveau service
+déclaré dans les `<modules>` du POM racine a donc son image sans toucher au
+workflow. Son port vient du `server.port` de son `application.yml`. Pour voir
+ce qu'une branche construirait :
+
+```bash
+.github/scripts/image-modules.sh origin/dev HEAD
+```
+
+### Déploiement en production
+
+Le workflow `.github/workflows/deploy.yml` (`D05` #38) déploie une version sur
+le cluster :
+
+| Déclencheur | Ce qui est déployé |
+|---|---|
+| tag `vX.Y.Z` poussé sur `main` | cette version, dès que le workflow `Images` a fini de la publier |
+| *Actions* → *Deploy* → *Run workflow* | la version saisie : **revenir à une version précédente**, ou redéployer la courante |
+
+Le rollback n'est donc pas une opération à part : c'est le déploiement d'un tag
+plus ancien, toujours présent sur GHCR puisqu'un tag ne se déplace ni ne se
+supprime jamais.
+
+**Ce que fait un déploiement**, dans `.github/scripts/deploy.sh` :
+
+1. il refuse un tag absent, ou posé ailleurs que sur `main` ;
+2. il vérifie que l'image de **chaque** service existe pour cette version,
+   avant de toucher au cluster ;
+3. il passe chaque service sur le **digest** de son image
+   (`X.Y.Z@sha256:…`), pas sur un tag ;
+4. il attend chaque rollout. **Si un seul échoue, tous les services de ce
+   déploiement reviennent à leur version précédente**, et le workflow échoue ;
+5. il enregistre la version déployée dans le ConfigMap `ecommerce-release`.
+
+Testé sur un cluster k3s aux contraintes de l'école, avec une version dont
+`cart-service` plante au démarrage : les trois services sont revenus à la
+version précédente. Pendant tout le déploiement raté et son retour arrière,
+196 requêtes sur 197 vers le panier ont abouti ; l'ancienne version a servi
+tant que la nouvelle n'était pas prête.
+
+```bash
+kubectl get configmap ecommerce-release -o jsonpath='{.data.version}'   # version en production
+kubectl rollout history deployment/cart-service                         # « deploy vX.Y.Z » par révision
+```
+
+**Le workflow ne s'active qu'une fois sur `main`** : GitHub ne lance un
+workflow `workflow_run` ou `workflow_dispatch` que depuis la branche par
+défaut. Il arrive donc avec la première release, et c'est elle qui fera le
+premier déploiement.
+
+**À configurer une fois**, dans *Settings* → *Environments* : un environnement
+**`production`**, avec le secret **`KUBECONFIG`** (le contenu du kubeconfig du
+namespace). Y ajouter des *Required reviewers* fait attendre chaque
+déploiement d'une approbation. Le secret n'est lisible que par ce job.
+
+**Si le cluster n'est pas joignable depuis GitHub** (API réservée au réseau de
+l'école), le même script se lance depuis un poste, avec le même résultat :
+
+```bash
+KUBECONFIG=~/.kube/ecole.yaml .github/scripts/deploy.sh v1.2.0
+```
+
+**Avec les manifests d'INFRA.** Le script change la version des services
+existants ; il ne crée ni ne modifie rien d'autre. Un `kubectl apply -k`
+d'INFRA remet les images au tag de son `kustomization.yaml` (`dev` pour
+l'instant) : redéployer ensuite la version en production,
+
+```bash
+.github/scripts/deploy.sh "$(kubectl get configmap ecommerce-release -o jsonpath='{.data.version}')"
+```
+
+ou faire lire ce ConfigMap par le déploiement d'INFRA.
 
 ## Intégration continue
 

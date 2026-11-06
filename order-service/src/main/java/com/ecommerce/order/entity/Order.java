@@ -47,6 +47,9 @@ public class Order {
     @Column(name = "stripe_session_id")
     private String stripeSessionId;
 
+    @Column(name = "session_token")
+    private String sessionToken;
+
     @Column(name = "transporteur")
     private String carrier;
 

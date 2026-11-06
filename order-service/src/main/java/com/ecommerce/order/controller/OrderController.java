@@ -1,4 +1,5 @@
 package com.ecommerce.order.controller;
+
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -18,15 +19,35 @@ import lombok.RequiredArgsConstructor;
 public class OrderController {
 
     public static final String HEADER_USER_ID = "X-User-Id";
+    public static final String HEADER_SESSION_TOKEN = "X-Session-Token";
 
     private final OrderService orderService;
 
     @PostMapping("/checkout")
     public ResponseEntity<CheckoutResponse> checkout(
             @RequestHeader(value = HEADER_USER_ID, required = true) Long userId,
+            @RequestHeader(value = HEADER_SESSION_TOKEN, required = false) String sessionToken,
             @Valid @RequestBody CheckoutRequest request) {
 
-        CheckoutResponse response = orderService.checkout(userId, request);
+        CheckoutResponse response = orderService.checkout(userId, sessionToken, request);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
+
+    @PostMapping("/webhook")
+    public ResponseEntity<Void> handleStripeWebhook(
+        @RequestHeader(value= "Stripe-Signature", required=false) String stripeSignature,
+        @RequestBody String payload){
+            
+
+            if(stripeSignature == null){
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST).build();
+            }
+
+            try{
+                orderService.handleStripeWebhook(payload, stripeSignature);
+                return ResponseEntity.ok().build();
+            }catch( IllegalArgumentException e){
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST).build();
+            }
+        }
 }

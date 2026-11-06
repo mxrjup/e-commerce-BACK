@@ -47,14 +47,18 @@ services:
       KC_DB_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       KC_HEALTH_ENABLED: "true"
       KC_HTTP_ENABLED: "true"
-      # Lues par le realm importe, via les expressions ${env.*} du JSON.
+      # Lues par le realm importe, via ses expressions ${VARIABLE:defaut}.
+      # Sans prefixe « env. » : Keycloak ne le reconnait pas et prendrait
+      # toujours la valeur par defaut.
       # L'URL frontale fixe l'issuer des jetons : la meme valeur pour les
       # navigateurs et pour les services, sinon la validation echoue.
       KEYCLOAK_FRONTEND_URL: ${KEYCLOAK_FRONTEND_URL:-http://localhost:8180}
-      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
-      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
-      APPLE_CLIENT_ID: ${APPLE_CLIENT_ID:-}
-      APPLE_CLIENT_SECRET: ${APPLE_CLIENT_SECRET:-}
+      # Une variable transmise vide l'emporterait sur le defaut du realm :
+      # « set-me » est repris ici, comme sur le cluster ou elles sont absentes.
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-set-me}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-set-me}
+      APPLE_CLIENT_ID: ${APPLE_CLIENT_ID:-set-me}
+      APPLE_CLIENT_SECRET: ${APPLE_CLIENT_SECRET:-set-me}
     ports:
       - "${KEYCLOAK_PORT:-8180}:8080"
     volumes:
@@ -206,6 +210,8 @@ services:
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-postgres}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
     ports:
       - "8084:8084"
     depends_on:

@@ -10,7 +10,6 @@ public class StripeConfig {
 
     @Bean
     public StripeClient stripeClient(StripeProperties properties) {
-        String apiKey = properties.getApiKey() != null ? properties.getApiKey() : "sk_test_placeholder";
-        return new StripeClient(apiKey);
+        return new StripeClient(properties.getApiKey());
     }
 }

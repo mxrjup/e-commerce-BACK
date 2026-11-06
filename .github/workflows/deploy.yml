@@ -1,0 +1,103 @@
+# Deploiement en production (D05 #38).
+#
+#   tag vX.Y.Z pousse sur main : le workflow Images construit et pousse les
+#     images de la version ; quand il reussit, ce workflow les deploie.
+#   lancement manuel (Actions -> Deploy -> Run workflow) avec une version :
+#     deploie cette version, c'est-a-dire revient a une version precedente
+#     (rollback par tag) ou redeploie la courante.
+#
+# Tout le travail est dans .github/scripts/deploy.sh, utilisable tel quel
+# depuis un poste avec un kubeconfig si le cluster n'est pas joignable depuis
+# GitHub. Un echec de rollout ramene automatiquement TOUS les services a leur
+# version precedente.
+#
+# A configurer une fois : l'environnement GitHub « production », avec le
+# secret KUBECONFIG (le contenu du fichier kubeconfig du namespace). Voir le
+# README, section « Déploiement ».
+name: Deploy
+
+on:
+  workflow_run:
+    workflows: [Images]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version a deployer, un tag existant sur main (vX.Y.Z)"
+        required: true
+        type: string
+
+# Un seul deploiement a la fois, et jamais annule en cours de route : un
+# rollout interrompu laisserait le cluster entre deux versions.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Deployer ${{ inputs.version || github.event.workflow_run.head_branch }}
+    # Automatique : seulement apres un workflow Images reussi, declenche par
+    # le push d'un tag de version, jamais par une branche ou une PR.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       startsWith(github.event.workflow_run.head_branch, 'v'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Les approbations eventuelles de l'environnement s'appliquent ici.
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Les tags et main : pour verifier que la version est bien une release.
+          fetch-depth: 0
+
+      - name: Verifier la version
+        id: version
+        env:
+          VERSION: ${{ inputs.version || github.event.workflow_run.head_branch }}
+        run: |
+          if ! git rev-parse -q --verify "refs/tags/$VERSION" >/dev/null; then
+            echo "::error::Le tag $VERSION n'existe pas." ; exit 1
+          fi
+          # Les tags ne se posent que sur main (CLAUDE.md) : un tag ailleurs
+          # n'est pas une release et ne part pas en production.
+          if ! git merge-base --is-ancestor "refs/tags/$VERSION" origin/main; then
+            echo "::error::Le tag $VERSION n'est pas sur main." ; exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Acces au cluster
+        env:
+          KUBECONFIG_CONTENT: ${{ secrets.KUBECONFIG }}
+        run: |
+          if [[ -z "$KUBECONFIG_CONTENT" ]]; then
+            echo "::error::Secret KUBECONFIG absent de l'environnement production." ; exit 1
+          fi
+          install -m 600 /dev/null "$RUNNER_TEMP/kubeconfig"
+          printf '%s\n' "$KUBECONFIG_CONTENT" > "$RUNNER_TEMP/kubeconfig"
+          echo "KUBECONFIG=$RUNNER_TEMP/kubeconfig" >> "$GITHUB_ENV"
+          kubectl version --client
+          kubectl get deployments
+
+      - name: Deployer
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: .github/scripts/deploy.sh "$VERSION"
+
+      - name: Resume
+        if: always()
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          {
+            echo "### Deploiement de \`${VERSION:-?}\` : ${{ job.status }}"
+            echo '```'
+            kubectl get deployments -o custom-columns='SERVICE:.metadata.name,IMAGE:.spec.template.spec.containers[0].image,PRETS:.status.readyReplicas' 2>/dev/null || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          rm -f "$RUNNER_TEMP/kubeconfig"

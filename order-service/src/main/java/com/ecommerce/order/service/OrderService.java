@@ -9,8 +9,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 
-import org.springframework.stereotype.Service;
-
+import com.ecommerce.common.event.OrderPaidEvent;
 import com.ecommerce.common.exception.ResourceNotFoundException;
 import com.ecommerce.order.client.CatalogClient;
 import com.ecommerce.order.client.CatalogVariantResponse;
@@ -23,44 +22,51 @@ import com.ecommerce.order.entity.Order;
 import com.ecommerce.order.entity.OrderItem;
 import com.ecommerce.order.entity.OrderStatus;
 import com.ecommerce.order.repository.OrderRepository;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.stripe.StripeClient;
+import com.stripe.exception.SignatureVerificationException;
+import com.stripe.model.Event;
 import com.stripe.model.checkout.Session;
+import com.stripe.net.Webhook;
 import com.stripe.param.checkout.SessionCreateParams;
-
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
-
-
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.stereotype.Service;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class OrderService {
 
     private final OrderRepository orderRepository;
     private final ShippingService shippingService;
     private final StripeClient stripeClient;
     private final StripeProperties stripeProperties;
+    private final KafkaTemplate<String, Object> kafkaTemplate;
     private final CatalogClient catalogClient;
 
+    @Value("${app.kafka.topics.order-paid:order.paid}")
+    private String orderPaidTopic;
 
-
-     /**
+    /**
      * Generate an another order number : CMD-YYYY-XXXXXX.
      * Example : CMD-2026-000001
      */
-    public String generateOrderNumber(){
+    public String generateOrderNumber() {
         int year = Year.now().getValue();
         String prefix = "CMD-" + year + "-";
 
         Optional<Order> lastOrderOpt = orderRepository.findFirstByOrderNumberStartingWithOrderByOrderNumberDesc(prefix);
 
         int nextNumber = 1;
-        if(!lastOrderOpt.isEmpty()){
-            
+        if (!lastOrderOpt.isEmpty()) {
             String lastOrderNumber = lastOrderOpt.get().getOrderNumber();
             String seqPart = lastOrderNumber.substring(lastOrderNumber.lastIndexOf('-') + 1);
-
-            nextNumber = Integer.parseInt(seqPart)+1;
+            nextNumber = Integer.parseInt(seqPart) + 1;
         }
         return prefix + String.format("%06d", nextNumber);
     }
@@ -99,11 +105,11 @@ public class OrderService {
     }
 
     @Transactional
-    public CheckoutResponse checkout(Long userId, CheckoutRequest request){
+    public CheckoutResponse checkout(Long userId, String sessionToken, CheckoutRequest request) {
         Order order = new Order();
         order.setOrderNumber(generateOrderNumber());
         order.setUserId(userId);
-
+        order.setSessionToken(sessionToken);
         order.setShippingAddressId(request.getShippingAddressId());
         order.setDeliveryMode(request.getDeliveryMode());
         order.setStatus(order.getStatus());
@@ -144,13 +150,12 @@ public class OrderService {
         orderRepository.save(order);
 
         return CheckoutResponse.builder()
-                .orderId(order.getId())
-                .orderNumber(order.getOrderNumber())
-                .totalInclTax(order.getTotalInclTax())
-                .stripeSessionId(session.getId())
-                .stripeCheckoutUrl(session.getUrl())
-                .build();
-
+            .orderId(order.getId())
+            .orderNumber(order.getOrderNumber())
+            .totalInclTax(order.getTotalInclTax())
+            .stripeSessionId(session.getId())
+            .stripeCheckoutUrl(session.getUrl())
+            .build();
     }
 
     private Session createStripeSession(Order order, BigDecimal shippingFee) {
@@ -159,6 +164,7 @@ public class OrderService {
                 .setMode(SessionCreateParams.Mode.PAYMENT)
                 .setSuccessUrl(stripeProperties.getSuccessUrl())
                 .setCancelUrl(stripeProperties.getCancelUrl())
+                .addPaymentMethodType(SessionCreateParams.PaymentMethodType.CARD)
                 .putMetadata("orderNumber", order.getOrderNumber());
 
             for (OrderItem item : order.getItems()) {
@@ -218,4 +224,99 @@ public class OrderService {
         }
     }
 
+    @Transactional
+    public void handleStripeWebhook(String payload, String sigHeader) {
+        Event event;
+        try {
+            event = Webhook.constructEvent(payload, sigHeader, stripeProperties.getWebhookSecret());
+        } catch (SignatureVerificationException e) {
+            log.error("Signature invalide pour le webhook Stripe : {}", e.getMessage());
+            throw new IllegalArgumentException("Invalild Stripe signature : " + e.getMessage(), e);
+        }
+
+        log.info("Evènements Stripe reçu : {}", event.getType());
+
+        if (!("checkout.session.completed".equals(event.getType())
+            || "checkout.session.async_payment_succeeded".equals(event.getType()))) {
+            return;
+        }
+
+        Session session;
+        try {
+            session = (Session) event.getDataObjectDeserializer().getObject()
+                .orElseThrow(() -> new IllegalStateException("Impossible de désérialiser la session Stripe pour cette version d'API"));
+        } catch (IllegalStateException e) {
+            log.warn("La session Stripe ne peut pas être désérialisée avec la version SDK actuelle ; fallback sur le payload brut : {}", e.getMessage());
+            session = getSessionFromRawPayload(payload);
+        }
+
+        if (session == null) {
+            throw new IllegalStateException("Impossible de récupérer la session Stripe depuis le webhook");
+        }
+
+        String paymentStatus = session.getPaymentStatus();
+        if (paymentStatus == null || !"paid".equalsIgnoreCase(paymentStatus)) {
+            log.info("Événement Stripe ignoré pour la session {} : payment_status={} ", session.getId(), paymentStatus);
+            return;
+        }
+
+        String sessionId = session.getId();
+        log.info("Traitement du paiement validé pour la session Stripe : {}", sessionId);
+
+        Order order = orderRepository.findByStripeSessionId(sessionId)
+            .orElseThrow(() -> new IllegalArgumentException("Commande non trouvée pour la session Stripe : " + sessionId));
+
+        if (order.getStatus() != OrderStatus.NEW) {
+            log.info("Commande {} non éligible au traitement du webhook (statut actuel : {}). Évènement ignoré.",
+                order.getOrderNumber(), order.getStatus());
+            return;
+        }
+
+        OrderPaidEvent orderPaidEvent = OrderPaidEvent.builder()
+            .orderId(order.getId())
+            .orderNumber(order.getOrderNumber())
+            .userId(order.getUserId())
+            .sessionToken(order.getSessionToken())
+            .totalInclTax(order.getTotalInclTax())
+            .build();
+
+        try {
+            kafkaTemplate.send(orderPaidTopic, order.getOrderNumber(), orderPaidEvent)
+                .get(5, TimeUnit.SECONDS);
+        } catch (Exception e) {
+            log.error("Échec de publication Kafka pour la commande {} : {}", order.getOrderNumber(), e.getMessage(), e);
+            throw new IllegalStateException("Impossible de publier l'évènement OrderPaid pour la commande " + order.getOrderNumber(), e);
+        }
+
+        order.setStatus(OrderStatus.IN_PREPARATION);
+        orderRepository.save(order);
+
+        log.info("Evènements OrderPaid publié sur Kafka pour la commande {} ", order.getOrderNumber());
+    }
+
+    private Session getSessionFromRawPayload(String payload) {
+        try {
+            ObjectMapper objectMapper = new ObjectMapper();
+            JsonNode root = objectMapper.readTree(payload);
+            JsonNode dataNode = root.get("data");
+            if (dataNode == null || !dataNode.isObject()) {
+                return null;
+            }
+
+            JsonNode sessionNode = dataNode.get("object");
+            if (sessionNode == null || !sessionNode.isObject()) {
+                return null;
+            }
+
+            Session session = new Session();
+            session.setId(sessionNode.has("id") && !sessionNode.get("id").isNull() ? sessionNode.get("id").asText() : null);
+            session.setPaymentStatus(sessionNode.has("payment_status") && !sessionNode.get("payment_status").isNull()
+                ? sessionNode.get("payment_status").asText()
+                : null);
+            return session;
+        } catch (Exception e) {
+            log.warn("Fallback Stripe payload JSON invalid : {}", e.getMessage());
+            return null;
+        }
+    }
 }

@@ -127,6 +127,19 @@ class GatewaySecurityTest {
     }
 
     @Test
+    void shouldAllowTheStripeWebhookWithoutATokenButOnlyForPost() throws InterruptedException {
+        BACKEND.enqueue(ok());
+
+        webTestClient.post().uri("/api/orders/webhook")
+                .bodyValue("{}")
+                .exchange()
+                .expectStatus().isOk();
+
+        RecordedRequest forwarded = BACKEND.takeRequest();
+        assertThat(forwarded.getPath()).isEqualTo("/api/orders/webhook");
+    }
+
+    @Test
     void shouldRejectAnOrderRequestWithoutAToken() {
         webTestClient.get().uri("/api/orders")
                 .exchange()
