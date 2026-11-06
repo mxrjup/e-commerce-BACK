@@ -60,6 +60,7 @@ class GatewaySecurityTest {
         String uri = "http://" + BACKEND.getHostName() + ":" + BACKEND.getPort();
         registry.add("CART_SERVICE_URI", () -> uri);
         registry.add("ORDER_SERVICE_URI", () -> uri);
+        registry.add("CATALOG_SERVICE_URI", () -> uri);
         // Le decodeur de jetons est mocke : ces URL ne sont jamais appelees,
         // elles evitent seulement un appel reseau au demarrage.
         registry.add("spring.security.oauth2.resourceserver.jwt.issuer-uri",
@@ -124,6 +125,42 @@ class GatewaySecurityTest {
                 .expectStatus().isOk();
 
         assertThat(BACKEND.takeRequest().getHeader("X-Session-Token")).isEqualTo("guest-session-123");
+    }
+
+    @Test
+    void shouldLetAGuestBrowseTheCatalogue() throws InterruptedException {
+        BACKEND.enqueue(ok());
+
+        webTestClient.get().uri("/api/catalog/categories")
+                .exchange()
+                .expectStatus().isOk();
+
+        assertThat(BACKEND.takeRequest().getPath()).isEqualTo("/api/catalog/categories");
+    }
+
+    @Test
+    void shouldRejectAWriteOnThePublicCatalogueWithoutAToken() {
+        webTestClient.post().uri("/api/catalog/brands")
+                .exchange()
+                .expectStatus().isUnauthorized();
+    }
+
+    @Test
+    void shouldRouteCatalogueAdministrationOnlyForTheBackOffice() throws InterruptedException {
+        givenTokenFor("a-client", "client");
+        webTestClient.post().uri("/api/admin/catalog/brands")
+                .header("Authorization", "Bearer any-value-the-decoder-is-mocked")
+                .exchange()
+                .expectStatus().isForbidden();
+
+        givenTokenFor("a-collaborator", "client", "collaborator");
+        BACKEND.enqueue(ok());
+        webTestClient.post().uri("/api/admin/catalog/brands")
+                .header("Authorization", "Bearer any-value-the-decoder-is-mocked")
+                .exchange()
+                .expectStatus().isOk();
+
+        assertThat(BACKEND.takeRequest().getPath()).isEqualTo("/api/admin/catalog/brands");
     }
 
     @Test

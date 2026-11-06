@@ -51,6 +51,9 @@ public class SecurityConfig {
                         // Le panier accepte les invites (P01) : un jeton est
                         // facultatif, et l'identite est injectee quand il y en a un.
                         .pathMatchers("/api/cart/**").permitAll()
+                        // Parcourir le catalogue ne demande pas de compte. En
+                        // lecture seulement : rien d'autre n'y est public.
+                        .pathMatchers(HttpMethod.GET, "/api/catalog/**").permitAll()
                         // « admin » inclut « collaborator » cote Keycloak ; les deux
                         // sont listes pour ne pas dependre de ce composite.
                         .pathMatchers("/api/admin/**").hasAnyRole("collaborator", "admin")
