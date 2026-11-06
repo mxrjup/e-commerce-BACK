@@ -14,15 +14,15 @@ import java.math.BigDecimal;
 @Getter
 @Setter
 @Entity
-@Table(name = "vat_rate")
+@Table(name = "tva")
 public class VatRate extends AuditedEntity {
 
-    @Column(nullable = false, length = 50)
+    @Column(name = "libelle", nullable = false, length = 50)
     private String label;
 
-    @Column(nullable = false, precision = 5, scale = 2)
+    @Column(name = "taux", nullable = false, precision = 5, scale = 2)
     private BigDecimal rate;
 
-    @Column(name = "is_default", nullable = false)
+    @Column(name = "par_defaut", nullable = false)
     private boolean defaultRate;
 }

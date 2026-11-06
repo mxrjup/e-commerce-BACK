@@ -22,10 +22,10 @@ public abstract class AuditedEntity {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(name = "created_at", nullable = false, updatable = false)
+    @Column(name = "date_creation", nullable = false, updatable = false)
     private Instant createdAt;
 
-    @Column(name = "updated_at", nullable = false)
+    @Column(name = "date_maj", nullable = false)
     private Instant updatedAt;
 
     @PrePersist

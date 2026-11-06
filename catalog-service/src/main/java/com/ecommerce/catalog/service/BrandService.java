@@ -60,7 +60,9 @@ public class BrandService {
 
     private Brand save(Brand brand, BrandRequest request) {
         String name = request.name().trim();
-        String slug = Slugs.resolve(request.slug(), name);
+        String slug = brand.getId() == null
+                ? Slugs.forCreation(request.slug(), name)
+                : Slugs.forUpdate(request.slug(), brand.getSlug());
         brandRepository.findByNameIgnoreCase(name)
                 .filter(other -> !Objects.equals(other.getId(), brand.getId()))
                 .ifPresent(other -> {

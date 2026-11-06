@@ -21,7 +21,8 @@ import java.util.Objects;
  *
  * <p>The default can only move, never disappear: marking a rate as default
  * takes the flag off the previous one, and the current default can neither be
- * unmarked nor deleted.
+ * unmarked nor deleted. Every write locks the table first, so concurrent
+ * writes cannot leave two defaults behind.
  */
 @Service
 @RequiredArgsConstructor
@@ -43,11 +44,13 @@ public class VatRateService {
 
     @Transactional
     public VatRateResponse create(VatRateRequest request) {
+        vatRateRepository.lockAll();
         return VatRateResponse.from(save(new VatRate(), request));
     }
 
     @Transactional
     public VatRateResponse update(Long id, VatRateRequest request) {
+        vatRateRepository.lockAll();
         VatRate vatRate = find(id);
         if (vatRate.isDefaultRate() && !request.defaultRate()) {
             throw new ConflictException("'" + vatRate.getLabel()
@@ -58,6 +61,7 @@ public class VatRateService {
 
     @Transactional
     public void delete(Long id) {
+        vatRateRepository.lockAll();
         VatRate vatRate = find(id);
         if (vatRate.isDefaultRate()) {
             throw new ConflictException("'" + vatRate.getLabel()

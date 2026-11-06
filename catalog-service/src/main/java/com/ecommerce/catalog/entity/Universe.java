@@ -12,10 +12,10 @@ import lombok.Setter;
 @Getter
 @Setter
 @Entity
-@Table(name = "universe")
+@Table(name = "univers")
 public class Universe extends AuditedEntity {
 
-    @Column(nullable = false, length = 100)
+    @Column(name = "nom", nullable = false, length = 100)
     private String name;
 
     @Column(nullable = false, length = 120)

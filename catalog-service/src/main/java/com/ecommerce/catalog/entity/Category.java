@@ -15,10 +15,10 @@ import lombok.Setter;
 @Getter
 @Setter
 @Entity
-@Table(name = "category")
+@Table(name = "categorie")
 public class Category extends AuditedEntity {
 
-    @Column(nullable = false, length = 100)
+    @Column(name = "nom", nullable = false, length = 100)
     private String name;
 
     @Column(nullable = false, length = 120)

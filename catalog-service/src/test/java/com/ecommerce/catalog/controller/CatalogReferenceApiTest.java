@@ -13,6 +13,15 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasItem;
@@ -47,13 +56,13 @@ class CatalogReferenceApiTest {
     /** Back to the state right after the migrations: no entries, the four seeded VAT rates. */
     @BeforeEach
     void resetData() {
-        jdbcTemplate.update("UPDATE category SET parent_id = NULL");
-        jdbcTemplate.update("DELETE FROM category");
-        jdbcTemplate.update("DELETE FROM brand");
-        jdbcTemplate.update("DELETE FROM universe");
-        jdbcTemplate.update("DELETE FROM vat_rate WHERE label NOT IN "
+        jdbcTemplate.update("UPDATE categorie SET parent_id = NULL");
+        jdbcTemplate.update("DELETE FROM categorie");
+        jdbcTemplate.update("DELETE FROM marque");
+        jdbcTemplate.update("DELETE FROM univers");
+        jdbcTemplate.update("DELETE FROM tva WHERE libelle NOT IN "
                 + "('Taux normal', 'Taux intermédiaire', 'Taux réduit', 'Taux particulier')");
-        jdbcTemplate.update("UPDATE vat_rate SET is_default = (label = 'Taux normal')");
+        jdbcTemplate.update("UPDATE tva SET par_defaut = (libelle = 'Taux normal')");
     }
 
     @Nested
@@ -120,6 +129,38 @@ class CatalogReferenceApiTest {
         }
 
         @Test
+        void shouldKeepTheSlugWhenABrandIsRenamedWithoutOne() throws Exception {
+            long id = idOf(create("brands", "{\"name\":\"Asus\"}"));
+
+            mockMvc.perform(put(ADMIN + "/brands/" + id).contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"name\":\"ASUS ROG\"}"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.name").value("ASUS ROG"))
+                    .andExpect(jsonPath("$.slug").value("asus"));
+            mockMvc.perform(get(PUBLIC + "/brands/asus")).andExpect(status().isOk());
+
+            mockMvc.perform(put(ADMIN + "/brands/" + id).contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"name\":\"ASUS ROG\",\"slug\":\"asus-rog\"}"))
+                    .andExpect(jsonPath("$.slug").value("asus-rog"));
+        }
+
+        @Test
+        void shouldAskForASlugWhenNoneCanBeDerivedFromTheName() throws Exception {
+            create("brands", "{\"name\":\"日本語\"}")
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.status").value(400))
+                    .andExpect(jsonPath("$.message",
+                            containsString("No slug can be derived from the name")));
+            create("brands", "{\"name\":\"+++\"}").andExpect(status().isBadRequest());
+            create("brands", "{\"name\":\"" + "œ".repeat(100) + "\"}")
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.message", containsString("longer than 120 characters")));
+
+            create("brands", "{\"name\":\"日本語\",\"slug\":\"nihongo\"}")
+                    .andExpect(status().isCreated());
+        }
+
+        @Test
         void shouldDeleteABrand() throws Exception {
             long id = idOf(create("brands", "{\"name\":\"Razer\"}"));
 
@@ -151,6 +192,16 @@ class CatalogReferenceApiTest {
             mockMvc.perform(get(PUBLIC + "/universes"))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$[*].name", contains("Gaming", "Streaming", "Télétravail")));
+        }
+
+        @Test
+        void shouldKeepTheSlugWhenAUniverseIsRenamedWithoutOne() throws Exception {
+            long id = idOf(create("universes", "{\"name\":\"Gaming\"}"));
+
+            mockMvc.perform(put(ADMIN + "/universes/" + id).contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"name\":\"Gaming & e-sport\"}"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.slug").value("gaming"));
         }
 
         @Test
@@ -231,6 +282,17 @@ class CatalogReferenceApiTest {
         }
 
         @Test
+        void shouldKeepTheSlugWhenACategoryIsUpdatedWithoutOne() throws Exception {
+            long id = idOf(create("categories", "{\"name\":\"Accessoires\",\"slug\":\"accessoires-audio\"}"));
+
+            mockMvc.perform(put(ADMIN + "/categories/" + id).contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"name\":\"Accessoires\",\"position\":3}"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.slug").value("accessoires-audio"))
+                    .andExpect(jsonPath("$.position").value(3));
+        }
+
+        @Test
         void shouldRefuseAnUnknownParent() throws Exception {
             create("categories", "{\"name\":\"Souris\",\"parentId\":999999}")
                     .andExpect(status().isNotFound())
@@ -275,6 +337,32 @@ class CatalogReferenceApiTest {
         }
 
         @Test
+        void shouldLeaveExactlyOneDefaultWhenSeveralRatesClaimItAtOnce() throws Exception {
+            int writers = 6;
+            ExecutorService pool = Executors.newFixedThreadPool(writers);
+            CountDownLatch start = new CountDownLatch(1);
+            try {
+                List<Future<Integer>> results = new ArrayList<>();
+                for (int i = 0; i < writers; i++) {
+                    String json = "{\"label\":\"Concurrent " + i + "\",\"rate\":" + (11 + i) + ",\"defaultRate\":true}";
+                    results.add(pool.submit(() -> {
+                        start.await();
+                        return create("vat-rates", json).andReturn().getResponse().getStatus();
+                    }));
+                }
+                start.countDown();
+                for (Future<Integer> result : results) {
+                    assertThat(result.get(30, TimeUnit.SECONDS)).isEqualTo(201);
+                }
+            } finally {
+                pool.shutdownNow();
+            }
+
+            assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM tva WHERE par_defaut", Integer.class))
+                    .isEqualTo(1);
+        }
+
+        @Test
         void shouldKeepTheDefaultRateUntilAnotherOneTakesOver() throws Exception {
             long standard = idOfVatRate("Taux normal");
 
@@ -309,7 +397,7 @@ class CatalogReferenceApiTest {
         }
 
         private long idOfVatRate(String label) {
-            return jdbcTemplate.queryForObject("SELECT id FROM vat_rate WHERE label = ?", Long.class, label);
+            return jdbcTemplate.queryForObject("SELECT id FROM tva WHERE libelle = ?", Long.class, label);
         }
     }
 

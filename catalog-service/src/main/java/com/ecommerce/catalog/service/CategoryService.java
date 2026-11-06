@@ -92,7 +92,9 @@ public class CategoryService {
 
     private Category save(Category category, CategoryRequest request) {
         String name = request.name().trim();
-        String slug = Slugs.resolve(request.slug(), name);
+        String slug = category.getId() == null
+                ? Slugs.forCreation(request.slug(), name)
+                : Slugs.forUpdate(request.slug(), category.getSlug());
         categoryRepository.findBySlug(slug)
                 .filter(other -> !Objects.equals(other.getId(), category.getId()))
                 .ifPresent(other -> {

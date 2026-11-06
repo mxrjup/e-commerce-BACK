@@ -63,7 +63,9 @@ public class UniverseService {
 
     private Universe save(Universe universe, UniverseRequest request) {
         String name = request.name().trim();
-        String slug = Slugs.resolve(request.slug(), name);
+        String slug = universe.getId() == null
+                ? Slugs.forCreation(request.slug(), name)
+                : Slugs.forUpdate(request.slug(), universe.getSlug());
         universeRepository.findByNameIgnoreCase(name)
                 .filter(other -> !Objects.equals(other.getId(), universe.getId()))
                 .ifPresent(other -> {

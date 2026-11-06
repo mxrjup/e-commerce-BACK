@@ -248,8 +248,16 @@ produits (`C01` #3) référenceront : **marques**, **catégories** (arborescente
 | `/api/admin/catalog/{brands,categories,universes,vat-rates}` | back-office | `GET` liste, `GET /{id}`, `POST`, `PUT /{id}`, `DELETE /{id}` |
 
 La vitrine adresse une entrée par son **slug**, le back-office par son **id**.
-Sans slug dans la requête, il est dérivé du nom : `Écrans & Moniteurs` donne
-`ecrans-moniteurs`.
+À la création, sans slug dans la requête, il est dérivé du nom : `Écrans &
+Moniteurs` donne `ecrans-moniteurs`. **Une mise à jour garde le slug existant**
+sauf si la requête en envoie un : renommer ou déplacer une entrée ne casse pas
+son URL publique. Si aucun slug utilisable ne se dérive du nom (`日本語`,
+`+++`, ou plus de 120 caractères), la création répond **400** et demande un
+slug explicite.
+
+Les tables et colonnes sont **en français** (`marque`, `categorie`, `univers`,
+`tva` ; `nom`, `libelle`, `taux`, `par_defaut`, `date_creation`, `date_maj`),
+comme dans les autres services ; le Java reste en anglais.
 
 Règles, toutes en **409** avec un message lisible :
 
@@ -260,7 +268,8 @@ Règles, toutes en **409** avec un message lisible :
   sous-catégories, et ne se supprime pas tant qu'elle en a ;
 - **il y a toujours exactement un taux de TVA par défaut** : en marquer un
   autre retire la marque du précédent ; le taux par défaut ne peut être ni
-  démarqué ni supprimé ;
+  démarqué ni supprimé. Chaque écriture verrouille la table `tva` : deux
+  requêtes simultanées ne laissent pas deux défauts ;
 - une entrée encore référencée par une autre table (un produit, demain) ne se
   supprime pas : la contrainte de la base répond 409, pas 500.
 
@@ -581,6 +590,9 @@ auto-configuration, sans annotation ni scan de composants côté service.
 
 - Lever `ResourceNotFoundException` pour un 404 métier : son message est repris
   tel quel dans `message`.
+- Lever `BadRequestException` pour un 400 métier, quand la requête passe la
+  validation mais ne peut pas être traitée telle quelle : son message est repris
+  dans `message`.
 - Lever `ConflictException` pour un 409 : requête valide, mais en conflit avec
   l'état des données (nom déjà pris, ressource encore utilisée).
 - Les erreurs de validation (`@Valid`) remplissent `details`.
