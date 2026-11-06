@@ -51,6 +51,9 @@ public class SecurityConfig {
                         // Le panier accepte les invites (P01) : un jeton est
                         // facultatif, et l'identite est injectee quand il y en a un.
                         .pathMatchers("/api/cart/**").permitAll()
+                        // Stripe doit pouvoir appeler le webhook sans bearer token,
+                        // mais uniquement pour cette route et ce verbe.
+                        .pathMatchers(HttpMethod.POST, "/api/orders/webhook").permitAll()
                         // « admin » inclut « collaborator » cote Keycloak ; les deux
                         // sont listes pour ne pas dependre de ce composite.
                         .pathMatchers("/api/admin/**").hasAnyRole("collaborator", "admin")
