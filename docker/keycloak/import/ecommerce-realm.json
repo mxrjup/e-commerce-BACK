@@ -16,7 +16,7 @@
   "ssoSessionIdleTimeout": 1800,
   "ssoSessionMaxLifespan": 36000,
   "attributes": {
-    "frontendUrl": "${env.KEYCLOAK_FRONTEND_URL:http://localhost:8180}"
+    "frontendUrl": "${KEYCLOAK_FRONTEND_URL:http://localhost:8180}"
   },
   "defaultRole": {
     "name": "default-roles-ecommerce",
@@ -143,8 +143,8 @@
       "linkOnly": false,
       "firstBrokerLoginFlowAlias": "first broker login",
       "config": {
-        "clientId": "${env.GOOGLE_CLIENT_ID:set-me}",
-        "clientSecret": "${env.GOOGLE_CLIENT_SECRET:set-me}",
+        "clientId": "${GOOGLE_CLIENT_ID:set-me}",
+        "clientSecret": "${GOOGLE_CLIENT_SECRET:set-me}",
         "defaultScope": "openid profile email",
         "syncMode": "IMPORT",
         "useJwksUrl": "true"
@@ -160,8 +160,8 @@
       "linkOnly": false,
       "firstBrokerLoginFlowAlias": "first broker login",
       "config": {
-        "clientId": "${env.APPLE_CLIENT_ID:set-me}",
-        "clientSecret": "${env.APPLE_CLIENT_SECRET:set-me}",
+        "clientId": "${APPLE_CLIENT_ID:set-me}",
+        "clientSecret": "${APPLE_CLIENT_SECRET:set-me}",
         "issuer": "https://appleid.apple.com",
         "authorizationUrl": "https://appleid.apple.com/auth/authorize",
         "tokenUrl": "https://appleid.apple.com/auth/token",
