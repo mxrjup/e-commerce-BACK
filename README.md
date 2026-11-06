@@ -4,6 +4,21 @@ Monorepo Maven multi-modules : un module par microservice, plus une librairie
 commune. Un seul POM parent fixe les versions, un seul `./mvnw clean verify`
 construit et teste l'ensemble.
 
+## Démarrage rapide
+
+```bash
+docker compose up -d                                # PostgreSQL, Keycloak, Kafka
+./mvnw clean install -DskipTests                    # construit common-lib et les services
+./mvnw -pl api-gateway spring-boot:run              # puis un terminal par service :
+./mvnw -pl cart-service spring-boot:run
+curl -i http://localhost:8080/api/cart              # 200, panier invité, via la gateway
+```
+
+Ou toute la pile en conteneurs : `docker compose --profile services up -d --build`.
+
+**Mettre en production, revenir en arrière, et la liste des variables
+d'environnement de chaque service** : [`docs/deploiement.md`](docs/deploiement.md).
+
 ## Prérequis
 
 - **JDK 21** (version imposée par le POM parent)
