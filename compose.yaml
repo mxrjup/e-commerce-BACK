@@ -156,6 +156,7 @@ services:
       KEYCLOAK_ISSUER_URI: ${KEYCLOAK_FRONTEND_URL:-http://localhost:8180}/realms/ecommerce
       KEYCLOAK_JWK_SET_URI: http://keycloak:8080/realms/ecommerce/protocol/openid-connect/certs
       CART_SERVICE_URI: http://cart-service:8083
+      CATALOG_SERVICE_URI: http://catalog-service:8081
       ORDER_SERVICE_URI: http://order-service:8084
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:5173,http://localhost:8081}
     ports:
@@ -193,6 +194,31 @@ services:
         condition: service_completed_successfully
     restart: unless-stopped
 
+  catalog-service:
+    profiles: ["services"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        MODULE: catalog-service
+        SERVER_PORT: 8081
+    container_name: ecommerce-catalog-service
+    environment:
+      SERVER_PORT: 8081
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${CATALOG_DB_NAME:-ecommerce_catalog}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-postgres}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    ports:
+      # 8081 est aussi le port par defaut du serveur Expo : CATALOG_PORT permet
+      # de publier le catalogue ailleurs sur l'hote quand les deux tournent.
+      - "${CATALOG_PORT:-8081}:8081"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
   order-service:
     profiles: ["services"]
     build:
@@ -210,6 +236,7 @@ services:
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-postgres}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      CATALOG_SERVICE_URL: http://catalog-service:8081
     ports:
       - "8084:8084"
     depends_on:

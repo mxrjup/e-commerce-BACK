@@ -28,6 +28,7 @@ COPY pom.xml ./
 COPY common-lib/pom.xml common-lib/
 COPY api-gateway/pom.xml api-gateway/
 COPY cart-service/pom.xml cart-service/
+COPY catalog-service/pom.xml catalog-service/
 COPY order-service/pom.xml order-service/
 RUN test -n "$MODULE" || (echo "MODULE est obligatoire : --build-arg MODULE=<module>" >&2; exit 1)
 RUN mvn -B -q -pl "$MODULE" -am dependency:go-offline -DskipTests
