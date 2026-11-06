@@ -23,6 +23,7 @@
     <modules>
         <module>common-lib</module>
         <module>api-gateway</module>
+        <module>catalog-service</module>
         <module>cart-service</module>
         <module>order-service</module>
     </modules>

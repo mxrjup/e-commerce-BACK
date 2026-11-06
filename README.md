@@ -64,8 +64,8 @@ changer une, `cp .env.example .env` puis ajuster — le `.env` n'est jamais
 commité.
 
 **Une base de données par service.** `docker/postgres/init/01-databases.sql`
-les crée au premier démarrage (`keycloak` et `ecommerce_cart` aujourd'hui). Ce
-script ne s'exécute que sur un volume vide : après y avoir ajouté une base,
+les crée au premier démarrage (`keycloak`, `ecommerce_cart`, `ecommerce_catalog`
+et `ecommerce_order` aujourd'hui). Ce script ne s'exécute que sur un volume vide : après y avoir ajouté une base,
 `docker compose down -v && docker compose up -d`.
 
 **Les services applicatifs** sont déclarés derrière le profil `services` :
@@ -222,7 +222,7 @@ où personne ne lira jamais rien.
 |---|---|---|---|---|
 | `common-lib` | Librairie partagée (contrat d'erreur HTTP, événements Kafka) | `T01`, `K02` | — | en place |
 | `cart-service` | Panier | `P*` | 8083 | en place |
-| `catalog-service` | Catalogue, stock, avis | `C*` | 8081 | à créer |
+| `catalog-service` | Catalogue, stock, avis | `C*` | 8081 | référentiels en place (`C05`) |
 | `user-service` | Utilisateurs, adresses, collaborateurs | `U*` | 8082 | à créer |
 | `order-service` | Commandes, paiement, livraison | `O*` | 8084 | en place |
 | `notification-service` | Notifications, alertes, emails | `N*` | 8085 | à créer |
@@ -232,6 +232,71 @@ où personne ne lira jamais rien.
 
 Les ports sont réservés ici pour éviter les collisions en local et dans le
 Docker Compose.
+
+## Catalogue : les référentiels
+
+`catalog-service` (`C05` #90) porte les référentiels transverses que les
+produits (`C01` #3) référenceront : **marques**, **catégories** (arborescentes),
+**univers** et **taux de TVA**.
+
+| Chemin | Pour | Contenu |
+|---|---|---|
+| `GET /api/catalog/brands`, `/brands/{slug}` | vitrine | marques, par nom |
+| `GET /api/catalog/categories` | vitrine | **l'arbre** des catégories, en une requête |
+| `GET /api/catalog/categories/{slug}` | vitrine | une catégorie et l'id de son parent |
+| `GET /api/catalog/universes`, `/universes/{slug}` | vitrine | univers, par `position` puis nom |
+| `/api/admin/catalog/{brands,categories,universes,vat-rates}` | back-office | `GET` liste, `GET /{id}`, `POST`, `PUT /{id}`, `DELETE /{id}` |
+
+La vitrine adresse une entrée par son **slug**, le back-office par son **id**.
+À la création, sans slug dans la requête, il est dérivé du nom : `Écrans &
+Moniteurs` donne `ecrans-moniteurs`. **Une mise à jour garde le slug existant**
+sauf si la requête en envoie un : renommer ou déplacer une entrée ne casse pas
+son URL publique. Si aucun slug utilisable ne se dérive du nom (`日本語`,
+`+++`, ou plus de 120 caractères), la création répond **400** et demande un
+slug explicite.
+
+Les tables et colonnes sont **en français** (`marque`, `categorie`, `univers`,
+`tva` ; `nom`, `libelle`, `taux`, `par_defaut`, `date_creation`, `date_maj`),
+comme dans les autres services ; le Java reste en anglais.
+
+Règles, toutes en **409** avec un message lisible :
+
+- un nom de marque ou d'univers, et un slug, sont uniques (le nom sans tenir
+  compte de la casse) ; deux catégories de branches différentes peuvent porter
+  le même nom, pas le même slug ;
+- une catégorie ne se déplace pas sous elle-même ni sous l'une de ses
+  sous-catégories, et ne se supprime pas tant qu'elle en a ;
+- **il y a toujours exactement un taux de TVA par défaut** : en marquer un
+  autre retire la marque du précédent ; le taux par défaut ne peut être ni
+  démarqué ni supprimé. Chaque écriture verrouille la table `tva` : deux
+  requêtes simultanées ne laissent pas deux défauts ;
+- une entrée encore référencée par une autre table (un produit, demain) ne se
+  supprime pas : la contrainte de la base répond 409, pas 500.
+
+**Le schéma est géré par Flyway**, une première dans le dépôt :
+`catalog-service/src/main/resources/db/migration`. Hibernate ne fait que
+vérifier (`ddl-auto: validate`) que les entités correspondent aux tables, et les
+tests passent par les mêmes migrations : un écart entre les deux fait échouer
+le build. Une évolution du schéma est donc **une nouvelle migration** (`V2__…`),
+jamais une modification de `V1`, déjà appliquée. Le SQL doit passer sur
+PostgreSQL et sur H2 en mode PostgreSQL (profil `local-h2` et tests).
+
+`V1` insère les quatre taux français (20 % par défaut, 10 %, 5,5 %, 2,1 %) :
+une donnée de référence, pas un jeu de démonstration.
+
+```bash
+./mvnw -pl catalog-service -am install -DskipTests
+./mvnw -pl catalog-service spring-boot:run -Dspring-boot.run.profiles=local-h2
+curl -s localhost:8081/api/admin/catalog/vat-rates
+curl -s -X POST localhost:8081/api/admin/catalog/categories \
+  -H 'Content-Type: application/json' -d '{"name":"Périphériques"}'
+curl -s localhost:8081/api/catalog/categories
+```
+
+> **Port 8081.** C'est aussi celui du serveur de développement Expo. Si les
+> deux tournent sur la même machine, `CATALOG_PORT` (voir `.env.example`)
+> publie le catalogue ailleurs dans le Docker Compose ; en dehors de Docker,
+> `-Dspring-boot.run.arguments=--server.port=8091`.
 
 ## Gateway : le point d'entrée de l'API
 
@@ -244,6 +309,8 @@ endroit où une route devient publique, authentifiée ou réservée au back-offi
 | Chemin | Service | Accès |
 |---|---|---|
 | `/api/cart/**` | `cart-service` | **public** — le panier accepte les invités (`P01`) |
+| `/api/catalog/**` | `catalog-service` | **public en lecture** (`GET`) ; le reste exige un jeton |
+| `/api/admin/catalog/**` | `catalog-service` | rôle `collaborator` ou `admin` |
 | `/api/orders/**` | `order-service` | jeton valide |
 | `/api/admin/orders/**` | `order-service` | rôle `collaborator` ou `admin` |
 | `/actuator/health`, `/actuator/info` | gateway | public |
@@ -281,8 +348,8 @@ curl -i http://localhost:8080/api/orders    # 401 sans jeton
 ```
 
 Par défaut elle valide les jetons contre
-`http://localhost:8180/realms/ecommerce` et route vers `localhost:8083` et
-`localhost:8084`. Dans Docker, les variables de `compose.yaml` remplacent ces
+`http://localhost:8180/realms/ecommerce` et route vers `localhost:8081`,
+`localhost:8083` et `localhost:8084`. Dans Docker, les variables de `compose.yaml` remplacent ces
 valeurs — en particulier les clés de signature, qui se récupèrent sur l'URL
 interne de Keycloak alors que l'issuer reste l'URL frontale.
 
@@ -491,6 +558,10 @@ En cas d'échec, les rapports Surefire du module sont joints au run
    base de données à `docker/postgres/init/01-databases.sql` et son entrée dans
    le profil `services` du `compose.yaml`, avec le port réservé au tableau des
    modules.
+8. Lui donner son Deployment dans les manifests de `e-commerce-INFRA`
+   (`k8s/services/`) **avant la release suivante** : `deploy.sh` déploie tous
+   les modules du POM et s'arrête si l'un d'eux n'a pas de Deployment sur le
+   cluster.
 
 La CI n'a pas à être modifiée : elle lit la liste des modules dans le
 `pom.xml` racine.
@@ -519,6 +590,11 @@ auto-configuration, sans annotation ni scan de composants côté service.
 
 - Lever `ResourceNotFoundException` pour un 404 métier : son message est repris
   tel quel dans `message`.
+- Lever `BadRequestException` pour un 400 métier, quand la requête passe la
+  validation mais ne peut pas être traitée telle quelle : son message est repris
+  dans `message`.
+- Lever `ConflictException` pour un 409 : requête valide, mais en conflit avec
+  l'état des données (nom déjà pris, ressource encore utilisée).
 - Les erreurs de validation (`@Valid`) remplissent `details`.
 - Les statuts décidés par Spring sont conservés (404 sur une URL inconnue, 405
   sur une mauvaise méthode, 400 sur un corps illisible).

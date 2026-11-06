@@ -1,5 +1,7 @@
 package com.ecommerce.common.web;
 
+import com.ecommerce.common.exception.BadRequestException;
+import com.ecommerce.common.exception.ConflictException;
 import com.ecommerce.common.exception.ResourceNotFoundException;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
@@ -46,6 +48,23 @@ class GlobalExceptionHandlerTest {
     }
 
     @Test
+    void shouldReturnConflictWithBusinessMessage() throws Exception {
+        mockMvc.perform(get("/test/conflict"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.status").value(409))
+                .andExpect(jsonPath("$.error").value("Conflict"))
+                .andExpect(jsonPath("$.message").value("Brand 'acme' already exists"));
+    }
+
+    @Test
+    void shouldReturnBadRequestWithBusinessMessage() throws Exception {
+        mockMvc.perform(get("/test/bad-request"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.message").value("No slug can be derived: send one"));
+    }
+
+    @Test
     void shouldReturnBadRequestWithValidationDetails() throws Exception {
         mockMvc.perform(post("/test/items")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -79,6 +98,16 @@ class GlobalExceptionHandlerTest {
         @GetMapping("/missing")
         void missing() {
             throw new ResourceNotFoundException("Cart 42 not found");
+        }
+
+        @GetMapping("/bad-request")
+        void badRequest() {
+            throw new BadRequestException("No slug can be derived: send one");
+        }
+
+        @GetMapping("/conflict")
+        void conflict() {
+            throw new ConflictException("Brand 'acme' already exists");
         }
 
         @GetMapping("/boom")

@@ -51,6 +51,9 @@ public class SecurityConfig {
                         // Le panier accepte les invites (P01) : un jeton est
                         // facultatif, et l'identite est injectee quand il y en a un.
                         .pathMatchers("/api/cart/**").permitAll()
+                        // Parcourir le catalogue ne demande pas de compte. En
+                        // lecture seulement : rien d'autre n'y est public.
+                        .pathMatchers(HttpMethod.GET, "/api/catalog/**").permitAll()
                         // Stripe doit pouvoir appeler le webhook sans bearer token,
                         // mais uniquement pour cette route et ce verbe.
                         .pathMatchers(HttpMethod.POST, "/api/orders/webhook").permitAll()

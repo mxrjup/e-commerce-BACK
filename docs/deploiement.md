@@ -180,28 +180,33 @@ sur le cluster, jamais versionné.
 | `KEYCLOAK_ISSUER_URI` | `http://localhost:8180/realms/ecommerce` | `${KEYCLOAK_FRONTEND_URL}/realms/ecommerce` | `$(PUBLIC_URL)/auth/realms/ecommerce` | `iss` attendu dans les jetons : l'URL **publique** |
 | `KEYCLOAK_JWK_SET_URI` | `http://localhost:8180/…/certs` | `http://keycloak:8080/…/certs` | `http://keycloak:8080/auth/…/certs` | clés de signature : l'URL **interne** |
 | `CART_SERVICE_URI` | `http://localhost:8083` | `http://cart-service:8083` | idem | cible de `/api/cart/**` |
+| `CATALOG_SERVICE_URI` | `http://localhost:8081` | `http://catalog-service:8081` | à ajouter dans INFRA | cible de `/api/catalog/**`, `/api/admin/catalog/**` |
 | `ORDER_SERVICE_URI` | `http://localhost:8084` | `http://order-service:8084` | idem | cible de `/api/orders/**`, `/api/admin/orders/**` |
 | `CORS_ALLOWED_ORIGINS` | `http://localhost:5173,http://localhost:8081` | idem, via `.env` | `$(PUBLIC_URL)` | origines navigateur autorisées |
 
 L'issuer et l'URL des clés **diffèrent volontairement** : voir README,
 « L'issuer, le piège à éviter ».
 
-### `cart-service` et `order-service`
+### `cart-service`, `catalog-service` et `order-service`
 
 | Variable | IDE | Compose | Cluster | Rôle |
 |---|---|---|---|---|
 | `DB_HOST` | `localhost` | `postgres` | `postgres` | hôte PostgreSQL |
 | `DB_PORT` | `5432` | `5432` | `5432` | port PostgreSQL |
-| `DB_NAME` | `ecommerce_cart` / `ecommerce_order` | via `CART_DB_NAME` / `ORDER_DB_NAME` | idem | base du service |
+| `DB_NAME` | `ecommerce_cart` / `ecommerce_catalog` / `ecommerce_order` | via `CART_DB_NAME` / `CATALOG_DB_NAME` / `ORDER_DB_NAME` | idem | base du service |
 | `SPRING_DATASOURCE_URL` | construite avec les trois précédentes | — | — | URL JDBC complète ; si fournie, remplace les trois |
-| `SPRING_DATASOURCE_USERNAME` | `postgres` | `${POSTGRES_USER}` | `cart_service` / `order_service` | rôle PostgreSQL du service |
+| `SPRING_DATASOURCE_USERNAME` | `postgres` | `${POSTGRES_USER}` | `cart_service` / `catalog_service` / `order_service` | rôle PostgreSQL du service |
 | `SPRING_DATASOURCE_PASSWORD` 🔒 | `postgres` | `${POSTGRES_PASSWORD}` | Secret `postgres-credentials` | mot de passe de ce rôle |
+
+Les valeurs *Cluster* de `catalog-service` (`ecommerce_catalog`, rôle
+`catalog_service`) s'appliqueront avec son manifest dans INFRA, pas encore
+écrit : voir « Prérequis », point 2.
 
 ### `order-service`, en plus
 
 | Variable | IDE | Compose | Cluster | Rôle |
 |---|---|---|---|---|
-| `CATALOG_SERVICE_URL` | `http://localhost:8081` | — | `http://catalog-service:8081` | API interne du catalogue (prix, stock) |
+| `CATALOG_SERVICE_URL` | `http://localhost:8081` | `http://catalog-service:8081` | `http://catalog-service:8081` | API interne du catalogue (prix, stock) |
 | `STRIPE_SECRET_KEY` 🔒 | `sk_test_placeholder` | — | Secret `stripe` | clé API Stripe |
 | `STRIPE_SUCCESS_URL` | `http://localhost:3000/checkout/success?…` | — | `$(PUBLIC_URL)/checkout/success?…` | retour après paiement |
 | `STRIPE_CANCEL_URL` | `http://localhost:3000/checkout/cancel` | — | `$(PUBLIC_URL)/checkout/cancel` | retour après abandon |
