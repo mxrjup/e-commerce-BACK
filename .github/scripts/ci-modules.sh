@@ -7,8 +7,11 @@
 #
 # Regles :
 # - un fichier sous <module>/ declenche ce module ;
-# - common-lib et les fichiers de build communs (POM racine, wrapper Maven,
-#   cette CI) declenchent tous les modules : ils en dependent tous ;
+# - common-lib, common-test et les fichiers de build communs (POM racine,
+#   wrapper Maven, cette CI) declenchent tous les modules : ils en dependent
+#   tous ;
+# - docker/kafka/create-topics.sh aussi : les tests d'integration Kafka le
+#   jouent pour creer leurs topics ;
 # - le reste (README, compose, docker/, Dockerfile...) ne declenche rien ;
 # - sans base exploitable (premier push d'une branche, lancement manuel), on
 #   construit tout plutot que de laisser passer un changement.
@@ -45,7 +48,8 @@ mapfile -t changed < <(git diff --name-only "${base}...${head}")
 selected=()
 for file in "${changed[@]}"; do
     case "$file" in
-        pom.xml | mvnw | mvnw.cmd | .mvn/* | common-lib/* | \
+        pom.xml | mvnw | mvnw.cmd | .mvn/* | common-lib/* | common-test/* | \
+            docker/kafka/create-topics.sh | \
             .github/workflows/ci.yml | .github/scripts/ci-modules.sh)
             echo "Changement commun ($file) : tous les modules." >&2
             to_json "${modules[@]}"
