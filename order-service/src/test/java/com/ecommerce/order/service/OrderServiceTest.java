@@ -1,9 +1,14 @@
 package com.ecommerce.order.service;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 import com.ecommerce.common.event.OrderPaidEvent;
+import com.ecommerce.common.event.OrderStatusChangedEvent;
+import com.ecommerce.common.kafka.KafkaTopics;
 import com.ecommerce.order.client.CatalogClient;
 import com.ecommerce.order.client.CatalogVariantResponse;
 import com.ecommerce.order.config.StripeProperties;
@@ -354,6 +359,33 @@ class OrderServiceTest {
         assertEquals(OrderStatus.NEW, updated.getStatus());
     }
 
+    @Test
+    @DisplayName("Status transition is allowed only for valid step changes")
+    void testUpdateStatus_AllowsValidTransitions() {
+        Order order = new Order();
+        order.setOrderNumber("ORD-42");
+        order.setStatus(OrderStatus.NEW);
+
+        orderService.updateStatus(order, OrderStatus.IN_PREPARATION);
+        assertEquals(OrderStatus.IN_PREPARATION, order.getStatus());
+
+        orderService.updateStatus(order, OrderStatus.SHIPPED);
+        assertEquals(OrderStatus.SHIPPED, order.getStatus());
+
+        orderService.updateStatus(order, OrderStatus.DELIVERED);
+        assertEquals(OrderStatus.DELIVERED, order.getStatus());
+    }
+
+    @Test
+    @DisplayName("Status transition rejects invalid state changes")
+    void testUpdateStatus_RejectsInvalidTransitions() {
+        Order order = new Order();
+        order.setStatus(OrderStatus.NEW);
+
+        assertThrows(IllegalStateException.class, () -> orderService.updateStatus(order, OrderStatus.DELIVERED));
+        assertThrows(IllegalStateException.class, () -> orderService.updateStatus(order, OrderStatus.CANCELLED));
+    }
+
     private String generateStripeSignature(String payload, String secret) throws Exception {
         long timestamp = Instant.now().getEpochSecond();
         String payloadToSign = timestamp + "." + payload;
@@ -368,4 +400,28 @@ class OrderServiceTest {
         }
         return "t=" + timestamp + ",v1=" + hex;
     }
+
+    @Test
+    void shouldPublishEventWhenStatusChanges() {
+        Order order = new Order();
+        order.setId(42L);
+        order.setOrderNumber("ORD-42");
+        order.setStatus(OrderStatus.NEW);
+
+        orderService.updateStatus(order, OrderStatus.IN_PREPARATION);
+
+        verify(kafkaTemplate).send(eq(KafkaTopics.ORDER_STATUS_CHANGED), any(OrderStatusChangedEvent.class));
+    }
+
+    @Test
+    void shouldNotPublishEventWhenTransitionIsInvalid() {
+        Order order = new Order();
+        order.setStatus(OrderStatus.NEW);
+
+        assertThrows(IllegalStateException.class,
+            () -> orderService.updateStatus(order, OrderStatus.DELIVERED));
+
+        verify(kafkaTemplate, never()).send(anyString(), any());
+    }
+
 }

@@ -2,11 +2,15 @@ package com.ecommerce.order.service;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.Instant;
 import java.time.Year;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
 import com.ecommerce.common.event.OrderPaidEvent;
+import com.ecommerce.common.event.OrderStatusChangedEvent;
+import com.ecommerce.common.kafka.KafkaTopics;
 import com.ecommerce.order.client.CatalogClient;
 import com.ecommerce.order.client.CatalogVariantResponse;
 import com.ecommerce.order.config.StripeProperties;
@@ -280,5 +284,35 @@ public class OrderService {
             log.warn("Fallback Stripe payload JSON invalid : {}", e.getMessage());
             return null;
         }
+    }
+
+    public void updateStatus(Order order, OrderStatus nextStatus) {
+        OrderStatus current = order.getStatus();
+
+        boolean allowed = switch (current) {
+            case NEW -> nextStatus == OrderStatus.IN_PREPARATION;
+            case IN_PREPARATION -> nextStatus == OrderStatus.SHIPPED;
+            case SHIPPED -> nextStatus == OrderStatus.DELIVERED;
+            case DELIVERED, CANCELLED -> false;
+        };
+
+        if (!allowed) {
+            throw new IllegalStateException(
+                "Transition invalide : " + current + " -> " + nextStatus
+            );
+        }
+
+        order.setStatus(nextStatus);
+
+        OrderStatusChangedEvent event = new OrderStatusChangedEvent(
+            UUID.randomUUID(),
+            Instant.now(),
+            order.getId(),
+            order.getOrderNumber(),
+            current.name(),
+            nextStatus.name()
+        );
+
+        kafkaTemplate.send(KafkaTopics.ORDER_STATUS_CHANGED, event);
     }
 }
