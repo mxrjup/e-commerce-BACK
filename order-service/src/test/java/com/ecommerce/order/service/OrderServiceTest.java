@@ -354,6 +354,32 @@ class OrderServiceTest {
         assertEquals(OrderStatus.NEW, updated.getStatus());
     }
 
+    @Test
+    @DisplayName("Status transition is allowed only for valid step changes")
+    void testUpdateStatus_AllowsValidTransitions() {
+        Order order = new Order();
+        order.setStatus(OrderStatus.NEW);
+
+        orderService.updateStatus(order, OrderStatus.IN_PREPARATION);
+        assertEquals(OrderStatus.IN_PREPARATION, order.getStatus());
+
+        orderService.updateStatus(order, OrderStatus.SHIPPED);
+        assertEquals(OrderStatus.SHIPPED, order.getStatus());
+
+        orderService.updateStatus(order, OrderStatus.DELIVERED);
+        assertEquals(OrderStatus.DELIVERED, order.getStatus());
+    }
+
+    @Test
+    @DisplayName("Status transition rejects invalid state changes")
+    void testUpdateStatus_RejectsInvalidTransitions() {
+        Order order = new Order();
+        order.setStatus(OrderStatus.NEW);
+
+        assertThrows(IllegalStateException.class, () -> orderService.updateStatus(order, OrderStatus.DELIVERED));
+        assertThrows(IllegalStateException.class, () -> orderService.updateStatus(order, OrderStatus.CANCELLED));
+    }
+
     private String generateStripeSignature(String payload, String secret) throws Exception {
         long timestamp = Instant.now().getEpochSecond();
         String payloadToSign = timestamp + "." + payload;

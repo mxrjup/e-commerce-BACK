@@ -281,4 +281,23 @@ public class OrderService {
             return null;
         }
     }
+
+    public void updateStatus(Order order, OrderStatus nextStatus) {
+        OrderStatus current = order.getStatus();
+
+        boolean allowed = switch (current) {
+            case NEW -> nextStatus == OrderStatus.IN_PREPARATION;
+            case IN_PREPARATION -> nextStatus == OrderStatus.SHIPPED;
+            case SHIPPED -> nextStatus == OrderStatus.DELIVERED;
+            case DELIVERED, CANCELLED -> false;
+        };
+
+        if (!allowed) {
+            throw new IllegalStateException(
+                "Transition invalide : " + current + " -> " + nextStatus
+            );
+        }
+
+        order.setStatus(nextStatus);
+    }
 }
