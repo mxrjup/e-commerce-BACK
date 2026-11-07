@@ -34,4 +34,7 @@ public record OrderPaidEvent(
         eventId = eventId != null ? eventId : UUID.randomUUID();
         occurredAt = occurredAt != null ? occurredAt : Instant.now();
     }
+
+
+
 }

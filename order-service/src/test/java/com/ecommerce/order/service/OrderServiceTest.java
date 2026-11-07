@@ -1,9 +1,14 @@
 package com.ecommerce.order.service;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 import com.ecommerce.common.event.OrderPaidEvent;
+import com.ecommerce.common.event.OrderStatusChangedEvent;
+import com.ecommerce.common.kafka.KafkaTopics;
 import com.ecommerce.order.client.CatalogClient;
 import com.ecommerce.order.client.CatalogVariantResponse;
 import com.ecommerce.order.config.StripeProperties;
@@ -358,6 +363,7 @@ class OrderServiceTest {
     @DisplayName("Status transition is allowed only for valid step changes")
     void testUpdateStatus_AllowsValidTransitions() {
         Order order = new Order();
+        order.setOrderNumber("ORD-42");
         order.setStatus(OrderStatus.NEW);
 
         orderService.updateStatus(order, OrderStatus.IN_PREPARATION);
@@ -394,4 +400,28 @@ class OrderServiceTest {
         }
         return "t=" + timestamp + ",v1=" + hex;
     }
+
+    @Test
+    void shouldPublishEventWhenStatusChanges() {
+        Order order = new Order();
+        order.setId(42L);
+        order.setOrderNumber("ORD-42");
+        order.setStatus(OrderStatus.NEW);
+
+        orderService.updateStatus(order, OrderStatus.IN_PREPARATION);
+
+        verify(kafkaTemplate).send(eq(KafkaTopics.ORDER_STATUS_CHANGED), any(OrderStatusChangedEvent.class));
+    }
+
+    @Test
+    void shouldNotPublishEventWhenTransitionIsInvalid() {
+        Order order = new Order();
+        order.setStatus(OrderStatus.NEW);
+
+        assertThrows(IllegalStateException.class,
+            () -> orderService.updateStatus(order, OrderStatus.DELIVERED));
+
+        verify(kafkaTemplate, never()).send(anyString(), any());
+    }
+
 }
