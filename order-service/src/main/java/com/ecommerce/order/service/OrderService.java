@@ -24,7 +24,9 @@ import com.ecommerce.order.dto.OrderResponse;
 import com.ecommerce.order.entity.Order;
 import com.ecommerce.order.entity.OrderItem;
 import com.ecommerce.order.entity.OrderStatus;
+import com.ecommerce.order.entity.SavedPaymentMethod;
 import com.ecommerce.order.repository.OrderRepository;
+import com.ecommerce.order.repository.SavedPaymentMethodRepository;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.stripe.StripeClient;
@@ -52,6 +54,7 @@ public class OrderService {
     private final KafkaTemplate<String, Object> kafkaTemplate;
     private final CatalogClient catalogClient;
     private final StripeCustomerService stripeCustomerService;
+    private final SavedPaymentMethodRepository savedPaymentMethodRepository;
 
     @Value("${app.kafka.topics.order-paid:order.paid}")
     private String orderPaidTopic;
@@ -173,6 +176,17 @@ public class OrderService {
                 .setCustomer(stripeCustomerId)
                 .addPaymentMethodType(SessionCreateParams.PaymentMethodType.CARD)
                 .putMetadata("orderNumber", order.getOrderNumber());
+
+            if (order.getSessionToken() != null && !order.getSessionToken().isBlank()) {
+                params.putMetadata("sessionToken", order.getSessionToken());
+            }
+
+            if (order.getUserId() != null) {
+                Optional<SavedPaymentMethod> defaultMethod = savedPaymentMethodRepository.findByUserId(order.getUserId()).stream()
+                    .filter(SavedPaymentMethod::isDefaultPaymentMethod)
+                    .findFirst();
+                defaultMethod.ifPresent(method -> params.putMetadata("defaultPaymentMethodId", method.getStripePaymentMethodId()));
+            }
 
             for (OrderItem item : order.getItems()) {
                 long subTotalCents = item.getSubTotalInclTax()

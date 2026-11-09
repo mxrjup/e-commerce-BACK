@@ -28,5 +28,18 @@ public class CheckoutRequest {
     @Valid
     private List<CheckoutItemRequest> items;
 
-    
+    private String paymentMethodId;
+
+    public CheckoutRequest(Long shippingAddressId, DeliveryMode deliveryMode, List<CheckoutItemRequest> items) {
+        this.shippingAddressId = shippingAddressId;
+        this.deliveryMode = deliveryMode;
+        this.items = items;
+    }
+
+    public CheckoutRequest(Long shippingAddressId, DeliveryMode deliveryMode, List<CheckoutItemRequest> items, String paymentMethodId) {
+        this.shippingAddressId = shippingAddressId;
+        this.deliveryMode = deliveryMode;
+        this.items = items;
+        this.paymentMethodId = paymentMethodId;
+    }
 }
