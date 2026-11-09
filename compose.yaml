@@ -59,6 +59,9 @@ services:
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-set-me}
       APPLE_CLIENT_ID: ${APPLE_CLIENT_ID:-set-me}
       APPLE_CLIENT_SECRET: ${APPLE_CLIENT_SECRET:-set-me}
+      # Secret du client « user-service » (U04). Meme valeur cote service,
+      # plus bas : les deux lisent la meme variable.
+      USER_SERVICE_CLIENT_SECRET: ${USER_SERVICE_CLIENT_SECRET:-set-me}
     ports:
       - "${KEYCLOAK_PORT:-8180}:8080"
     volumes:
@@ -157,6 +160,7 @@ services:
       KEYCLOAK_JWK_SET_URI: http://keycloak:8080/realms/ecommerce/protocol/openid-connect/certs
       CART_SERVICE_URI: http://cart-service:8083
       CATALOG_SERVICE_URI: http://catalog-service:8081
+      USER_SERVICE_URI: http://user-service:8082
       ORDER_SERVICE_URI: http://order-service:8084
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:5173,http://localhost:8081}
     ports:
@@ -216,6 +220,28 @@ services:
       - "${CATALOG_PORT:-8081}:8081"
     depends_on:
       postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  user-service:
+    profiles: ["services"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        MODULE: user-service
+        SERVER_PORT: 8082
+    container_name: ecommerce-user-service
+    environment:
+      SERVER_PORT: 8082
+      # L'Admin API se joint par le reseau Docker ; aucun jeton n'est valide
+      # ici, l'issuer n'a donc pas d'importance.
+      KEYCLOAK_ADMIN_SERVER_URL: http://keycloak:8080
+      KEYCLOAK_ADMIN_CLIENT_SECRET: ${USER_SERVICE_CLIENT_SECRET:-set-me}
+    ports:
+      - "8082:8082"
+    depends_on:
+      keycloak:
         condition: service_healthy
     restart: unless-stopped
 

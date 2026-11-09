@@ -182,6 +182,7 @@ sur le cluster, jamais versionné.
 | `CART_SERVICE_URI` | `http://localhost:8083` | `http://cart-service:8083` | idem | cible de `/api/cart/**` |
 | `CATALOG_SERVICE_URI` | `http://localhost:8081` | `http://catalog-service:8081` | à ajouter dans INFRA | cible de `/api/catalog/**`, `/api/admin/catalog/**` |
 | `ORDER_SERVICE_URI` | `http://localhost:8084` | `http://order-service:8084` | idem | cible de `/api/orders/**`, `/api/admin/orders/**` |
+| `USER_SERVICE_URI` | `http://localhost:8082` | `http://user-service:8082` | à ajouter dans INFRA | cible de `/api/admin/users/**` |
 | `CORS_ALLOWED_ORIGINS` | `http://localhost:5173,http://localhost:8081` | idem, via `.env` | `$(PUBLIC_URL)` | origines navigateur autorisées |
 
 L'issuer et l'URL des clés **diffèrent volontairement** : voir README,
@@ -220,6 +221,28 @@ Les valeurs *Cluster* de `catalog-service` (`ecommerce_catalog`, rôle
   traitement du webhook Stripe (`O03` #27), pas encore mergé.
 - En production, la clé est une clé **live** (`sk_live_…`) : c'est le seul
   endroit où elle existe, dans le Secret `stripe` du cluster.
+
+### `user-service`
+
+Pas de base de données pour l'instant : les collaborateurs vivent dans
+Keycloak (`U04` #91). Les variables `DB_*` arriveront avec `U01` (#58).
+
+| Variable | IDE | Compose | Cluster | Rôle |
+|---|---|---|---|---|
+| `KEYCLOAK_ADMIN_SERVER_URL` | `http://localhost:8180` | `http://keycloak:8080` | `http://keycloak:8080/auth` | Keycloak joignable **depuis le service**, sans `/realms` |
+| `KEYCLOAK_REALM` | `ecommerce` | — | — | realm dont les comptes sont gérés |
+| `KEYCLOAK_ADMIN_CLIENT_ID` | `user-service` | — | — | client confidentiel à compte de service |
+| `KEYCLOAK_ADMIN_CLIENT_SECRET` 🔒 | `set-me` | `${USER_SERVICE_CLIENT_SECRET}` | Secret, à créer dans INFRA | secret de ce client |
+
+**Le secret est partagé avec Keycloak.** Le realm importé lit le sien dans
+`USER_SERVICE_CLIENT_SECRET` (défaut `set-me`) : sur le cluster, le Deployment
+de Keycloak et celui de `user-service` doivent lire **la même clé du même
+Secret**, générée une fois (`openssl rand -hex 32`). Un défaut `set-me` laissé
+sur le cluster donnerait la gestion des comptes à quiconque le connaît.
+
+Comme pour tout changement de realm, Keycloak n'importe ce client que sur un
+realm qui n'existe pas encore : sur un Keycloak déjà en place, le créer depuis
+la console (voir README, « Collaborateurs »).
 
 ### La stack Docker Compose
 
