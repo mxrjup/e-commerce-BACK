@@ -64,8 +64,8 @@ changer une, `cp .env.example .env` puis ajuster — le `.env` n'est jamais
 commité.
 
 **Une base de données par service.** `docker/postgres/init/01-databases.sql`
-les crée au premier démarrage (`keycloak`, `ecommerce_cart`, `ecommerce_catalog`
-et `ecommerce_order` aujourd'hui). Ce script ne s'exécute que sur un volume vide : après y avoir ajouté une base,
+les crée au premier démarrage (`keycloak`, `ecommerce_cart`, `ecommerce_catalog`,
+`ecommerce_order` et `ecommerce_mcp` aujourd'hui). Ce script ne s'exécute que sur un volume vide : après y avoir ajouté une base,
 `docker compose down -v && docker compose up -d`.
 
 **Les services applicatifs** sont déclarés derrière le profil `services` :
@@ -228,7 +228,7 @@ où personne ne lira jamais rien.
 | `order-service` | Commandes, paiement, livraison | `O*` | 8084 | en place |
 | `notification-service` | Notifications, alertes, emails | `N*` | 8085 | à créer |
 | `support-service` | SAV, tickets | `S*` | 8086 | à créer |
-| `mcp-service` | Serveur MCP | `M*` | 8087 | à créer |
+| `mcp-service` | Serveur MCP | `M*` | 8087 | jetons en place (`M03`), serveur à venir (`M01`) |
 | `api-gateway` | Routage, validation JWT, CORS | `T04` | 8080 | en place |
 
 Les ports sont réservés ici pour éviter les collisions en local et dans le
@@ -364,6 +364,67 @@ docker compose up -d                             # Keycloak doit tourner
 curl -s localhost:8082/api/admin/users/collaborators   # admin.demo@ecommerce.test
 ```
 
+## MCP : les jetons d'accès
+
+Un client MCP (Claude Desktop, MCP Inspector) n'a pas de compte Keycloak : il
+s'authentifie avec un **jeton MCP** émis depuis le back-office (`M03` #92),
+envoyé dans `Authorization: Bearer mcp_…`. `mcp-service` porte ces jetons et
+le filtre qui les vérifie ; le serveur MCP lui-même (Spring AI, `M01` #50) et
+ses tools (`M02` #51) viendront s'y brancher.
+
+| Méthode et chemin | Effet |
+|---|---|
+| `GET /api/admin/mcp/tokens` | les jetons, du plus récent au plus ancien, avec leur statut et leur dernière utilisation |
+| `GET /api/admin/mcp/tokens/{id}` | un jeton |
+| `POST /api/admin/mcp/tokens` | `{"name":"Claude Desktop - Marius","scopes":["catalog:read"],"expiresAt":"2027-01-01T00:00:00Z"}` → 201, **avec le jeton** |
+| `POST /api/admin/mcp/tokens/{id}/revoke` | révoque, immédiatement et définitivement |
+
+Réservé au rôle **`admin`** par la gateway.
+
+**Le jeton n'est affiché qu'une fois**, dans la réponse à la création : la base
+ne garde que son **empreinte SHA-256** et ses 12 premiers caractères
+(`prefix`), pour que le back-office le reconnaisse. Perdu, il ne se relit pas :
+on le révoque et on en crée un autre. Il fait `mcp_` + 256 bits aléatoires :
+impossible à deviner, d'où une empreinte rapide plutôt que bcrypt, qui coûterait
+quelques centaines de millisecondes à chaque requête MCP sans rien protéger de
+plus.
+
+| Portée | Ouvre |
+|---|---|
+| `catalog:read` | les tools du catalogue |
+| `orders:read` | les tools des commandes |
+| `users:read` | les tools des utilisateurs |
+
+Toutes en lecture : aucun tool MCP n'écrit. Un tool vérifie sa portée avant de
+lire quoi que ce soit, ce qui donne une **403** si elle manque :
+
+```java
+McpAuthentication.requireScope(McpScope.CATALOG_READ);
+```
+
+**Le filtre** protège `/sse`, `/mcp` et `/mcp/*` (les chemins SSE et
+Streamable HTTP du serveur Spring AI), réglables par `mcp.security.protected-paths`.
+Un jeton absent, inconnu, révoqué ou expiré reçoit la **même 401** : on
+n'apprend rien sur les jetons qui existent. Un jeton révoqué l'est à la
+requête suivante, sans cache. `expiresAt` est facultatif : sans lui, le jeton
+vit jusqu'à sa révocation. La dernière utilisation est enregistrée **au plus
+une fois par minute**, pour qu'un client qui enchaîne les appels ne transforme
+pas chacun en écriture.
+
+**Côté gateway**, ces chemins ont leur propre chaîne de sécurité, sans
+validation JWT : un `Bearer mcp_…` y serait refusé comme JWT mal formé avant
+d'atteindre le service. Ils n'ont pas non plus de délai de réponse : un flux
+SSE reste ouvert tant que le client est connecté.
+
+```bash
+./mvnw -pl mcp-service -am install -DskipTests
+./mvnw -pl mcp-service spring-boot:run -Dspring-boot.run.profiles=local-h2
+TOKEN=$(curl -s -X POST localhost:8087/api/admin/mcp/tokens -H 'Content-Type: application/json' \
+  -d '{"name":"essai","scopes":["catalog:read"]}' | jq -r .token)
+curl -i localhost:8087/sse                                   # 401
+curl -i localhost:8087/sse -H "Authorization: Bearer $TOKEN" # 404 tant que M01 n'est pas là
+```
+
 ## Gateway : le point d'entrée de l'API
 
 Tout le trafic entre par `api-gateway`, sur le port 8080. Les services ne sont
@@ -381,6 +442,8 @@ endroit où une route devient publique, authentifiée ou réservée au back-offi
 | `/api/admin/orders/**` | `order-service` | rôle `collaborator` ou `admin` |
 | `/api/admin/users/collaborators/**` | `user-service` | rôle **`admin`** seulement |
 | `/api/admin/users/**` (le reste) | `user-service` | rôle `collaborator` ou `admin` |
+| `/api/admin/mcp/**` | `mcp-service` | rôle **`admin`** seulement |
+| `/mcp`, `/mcp/**`, `/sse` | `mcp-service` | **jeton MCP**, vérifié par `mcp-service` et non par la gateway |
 | `/actuator/health`, `/actuator/info` | gateway | public |
 | tout le reste | — | jeton valide : on refuse par défaut |
 
@@ -417,7 +480,7 @@ curl -i http://localhost:8080/api/orders    # 401 sans jeton
 
 Par défaut elle valide les jetons contre
 `http://localhost:8180/realms/ecommerce` et route vers `localhost:8081`,
-`localhost:8082`, `localhost:8083` et `localhost:8084`. Dans Docker, les variables de `compose.yaml` remplacent ces
+`localhost:8082`, `localhost:8083`, `localhost:8084` et `localhost:8087`. Dans Docker, les variables de `compose.yaml` remplacent ces
 valeurs — en particulier les clés de signature, qui se récupèrent sur l'URL
 interne de Keycloak alors que l'issuer reste l'URL frontale.
 
@@ -832,3 +895,4 @@ docker exec ecommerce-kafka /opt/kafka/bin/kafka-console-consumer.sh \
 | Correspondance UUID Keycloak → identifiant applicatif | `U01` #58 |
 | Dockerfile du front web | `D01` #87, après `T06` #11 |
 | Manifests Kubernetes | `D04` #88 |
+| Serveur MCP (Spring AI) et ses tools, derrière le filtre des jetons | `M01` #50, `M02` #51 |

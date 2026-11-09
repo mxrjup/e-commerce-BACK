@@ -183,25 +183,31 @@ sur le cluster, jamais versionné.
 | `CATALOG_SERVICE_URI` | `http://localhost:8081` | `http://catalog-service:8081` | à ajouter dans INFRA | cible de `/api/catalog/**`, `/api/admin/catalog/**` |
 | `ORDER_SERVICE_URI` | `http://localhost:8084` | `http://order-service:8084` | idem | cible de `/api/orders/**`, `/api/admin/orders/**` |
 | `USER_SERVICE_URI` | `http://localhost:8082` | `http://user-service:8082` | à ajouter dans INFRA | cible de `/api/admin/users/**` |
+| `MCP_SERVICE_URI` | `http://localhost:8087` | `http://mcp-service:8087` | à ajouter dans INFRA | cible de `/mcp/**`, `/sse`, `/api/admin/mcp/**` |
 | `CORS_ALLOWED_ORIGINS` | `http://localhost:5173,http://localhost:8081` | idem, via `.env` | `$(PUBLIC_URL)` | origines navigateur autorisées |
 
 L'issuer et l'URL des clés **diffèrent volontairement** : voir README,
 « L'issuer, le piège à éviter ».
 
-### `cart-service`, `catalog-service` et `order-service`
+### `cart-service`, `catalog-service`, `order-service` et `mcp-service`
 
 | Variable | IDE | Compose | Cluster | Rôle |
 |---|---|---|---|---|
 | `DB_HOST` | `localhost` | `postgres` | `postgres` | hôte PostgreSQL |
 | `DB_PORT` | `5432` | `5432` | `5432` | port PostgreSQL |
-| `DB_NAME` | `ecommerce_cart` / `ecommerce_catalog` / `ecommerce_order` | via `CART_DB_NAME` / `CATALOG_DB_NAME` / `ORDER_DB_NAME` | idem | base du service |
+| `DB_NAME` | `ecommerce_cart` / `ecommerce_catalog` / `ecommerce_order` / `ecommerce_mcp` | via `CART_DB_NAME` / `CATALOG_DB_NAME` / `ORDER_DB_NAME` / `MCP_DB_NAME` | idem | base du service |
 | `SPRING_DATASOURCE_URL` | construite avec les trois précédentes | — | — | URL JDBC complète ; si fournie, remplace les trois |
-| `SPRING_DATASOURCE_USERNAME` | `postgres` | `${POSTGRES_USER}` | `cart_service` / `catalog_service` / `order_service` | rôle PostgreSQL du service |
+| `SPRING_DATASOURCE_USERNAME` | `postgres` | `${POSTGRES_USER}` | `cart_service` / `catalog_service` / `order_service` / `mcp_service` | rôle PostgreSQL du service |
 | `SPRING_DATASOURCE_PASSWORD` 🔒 | `postgres` | `${POSTGRES_PASSWORD}` | Secret `postgres-credentials` | mot de passe de ce rôle |
 
 Les valeurs *Cluster* de `catalog-service` (`ecommerce_catalog`, rôle
-`catalog_service`) s'appliqueront avec son manifest dans INFRA, pas encore
-écrit : voir « Prérequis », point 2.
+`catalog_service`) et de `mcp-service` (`ecommerce_mcp`, rôle `mcp_service`)
+s'appliqueront avec leurs manifests dans INFRA, pas encore écrits : voir
+« Prérequis », point 2.
+
+`mcp-service` lit aussi `MCP_SECURITY_PROTECTED_PATHS` (défaut
+`/sse,/mcp,/mcp/*`) : les chemins du transport MCP qui exigent un jeton MCP.
+À ne changer qu'avec les chemins du serveur MCP (`M01`).
 
 ### `order-service`, en plus
 
