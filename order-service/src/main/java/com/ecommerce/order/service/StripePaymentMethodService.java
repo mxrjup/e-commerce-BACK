@@ -1,5 +1,6 @@
 package com.ecommerce.order.service;
 
+import com.ecommerce.order.dto.SavedPaymentMethodResponse;
 import com.ecommerce.order.entity.CustomerProfile;
 import com.ecommerce.order.entity.SavedPaymentMethod;
 import com.ecommerce.order.repository.CustomerProfileRepository;
@@ -11,6 +12,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.util.Comparator;
+import java.util.List;
 import java.util.Optional;
 
 @Service
@@ -58,5 +61,35 @@ public class StripePaymentMethodService {
         } catch (Exception e) {
             throw new IllegalStateException("Unable to attach Stripe payment method " + paymentMethodId + " to user " + userId, e);
         }
+    }
+
+    public List<SavedPaymentMethodResponse> getSavedPaymentMethods(Long userId) {
+        return savedPaymentMethodRepository.findByUserId(userId).stream()
+            .sorted(Comparator.comparing(SavedPaymentMethod::isDefaultPaymentMethod).reversed()
+                .thenComparing(SavedPaymentMethod::getId))
+            .map(this::toResponse)
+            .toList();
+    }
+
+    public void setDefaultPaymentMethod(Long userId, String paymentMethodId) {
+        List<SavedPaymentMethod> userMethods = savedPaymentMethodRepository.findByUserId(userId);
+        SavedPaymentMethod selected = userMethods.stream()
+            .filter(method -> method.getStripePaymentMethodId().equals(paymentMethodId))
+            .findFirst()
+            .orElseThrow(() -> new IllegalArgumentException("Payment method " + paymentMethodId + " not found for user " + userId));
+
+        userMethods.forEach(method -> method.setDefaultPaymentMethod(false));
+        selected.setDefaultPaymentMethod(true);
+        savedPaymentMethodRepository.saveAll(userMethods);
+    }
+
+    private SavedPaymentMethodResponse toResponse(SavedPaymentMethod entity) {
+        SavedPaymentMethodResponse response = new SavedPaymentMethodResponse();
+        response.setId(entity.getId());
+        response.setStripePaymentMethodId(entity.getStripePaymentMethodId());
+        response.setBrand(entity.getBrand());
+        response.setLast4(entity.getLast4());
+        response.setDefaultPaymentMethod(entity.isDefaultPaymentMethod());
+        return response;
     }
 }
