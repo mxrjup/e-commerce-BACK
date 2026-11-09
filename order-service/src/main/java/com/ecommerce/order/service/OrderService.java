@@ -4,6 +4,8 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Instant;
 import java.time.Year;
+import java.util.Comparator;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
@@ -11,12 +13,14 @@ import java.util.concurrent.TimeUnit;
 import com.ecommerce.common.event.OrderPaidEvent;
 import com.ecommerce.common.event.OrderStatusChangedEvent;
 import com.ecommerce.common.kafka.KafkaTopics;
+import com.ecommerce.common.exception.ResourceNotFoundException;
 import com.ecommerce.order.client.CatalogClient;
 import com.ecommerce.order.client.CatalogVariantResponse;
 import com.ecommerce.order.config.StripeProperties;
 import com.ecommerce.order.dto.CheckoutItemRequest;
 import com.ecommerce.order.dto.CheckoutRequest;
 import com.ecommerce.order.dto.CheckoutResponse;
+import com.ecommerce.order.dto.OrderResponse;
 import com.ecommerce.order.entity.Order;
 import com.ecommerce.order.entity.OrderItem;
 import com.ecommerce.order.entity.OrderStatus;
@@ -68,6 +72,39 @@ public class OrderService {
             nextNumber = Integer.parseInt(seqPart) + 1;
         }
         return prefix + String.format("%06d", nextNumber);
+    }
+
+    public List<OrderResponse> getOrdersForAdmin(Long userId, OrderStatus status, Instant from, Instant to) {
+        List<Order> orders;
+
+        if (userId != null && status != null && from != null && to != null) {
+            orders = orderRepository.findByUserIdAndStatusAndCreatedAtBetween(userId, status, from, to);
+        } else if (userId != null && status != null) {
+            orders = orderRepository.findByUserIdAndStatus(userId, status);
+        } else if (userId != null && from != null && to != null) {
+            orders = orderRepository.findByUserIdAndCreatedAtBetween(userId, from, to);
+        } else if (status != null && from != null && to != null) {
+            orders = orderRepository.findByStatusAndCreatedAtBetween(status, from, to);
+        } else if (userId != null) {
+            orders = orderRepository.findByUserId(userId);
+        } else if (status != null) {
+            orders = orderRepository.findByStatus(status);
+        } else if (from != null && to != null) {
+            orders = orderRepository.findByCreatedAtBetween(from, to);
+        } else {
+            orders = orderRepository.findAll();
+        }
+
+        return orders.stream()
+            .sorted(Comparator.comparing(Order::getCreatedAt).reversed())
+            .map(OrderResponse::fromEntity)
+            .toList();
+    }
+
+    public OrderResponse getOrderForAdmin(Long orderId) {
+        Order order = orderRepository.findById(orderId)
+            .orElseThrow(() -> new ResourceNotFoundException("Commande introuvable : " + orderId));
+        return OrderResponse.fromEntity(order);
     }
 
     @Transactional
