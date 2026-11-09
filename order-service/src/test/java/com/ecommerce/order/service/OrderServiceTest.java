@@ -36,6 +36,7 @@ import javax.crypto.spec.SecretKeySpec;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.Answers;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
@@ -61,6 +62,9 @@ class OrderServiceTest {
 
     @MockBean
     private CatalogClient catalogClient;
+
+    @MockBean
+    private StripeCustomerService stripeCustomerService;
 
     @Autowired
     private StripeProperties stripeProperties;
@@ -159,6 +163,34 @@ class OrderServiceTest {
         assertEquals(new BigDecimal("84.00"), response.getTotalInclTax());
         assertEquals("cs_test_123456", response.getStripeSessionId());
         assertEquals("https://checkout.stripe.com/pay/cs_test_123456", response.getStripeCheckoutUrl());
+    }
+
+    @Test
+    @DisplayName("Checkout binds Stripe session to the account Stripe customer")
+    void testCheckout_UsesStoredStripeCustomer() throws Exception {
+        when(catalogClient.getVariant(10L)).thenReturn(
+            new CatalogVariantResponse(10L, "Souris gamer", new BigDecimal("50.00"), new BigDecimal("20.00"))
+        );
+        when(stripeCustomerService.getOrCreateStripeCustomer(1L, null)).thenReturn("cus_account_123");
+
+        Session mockSession = mock(Session.class);
+        when(mockSession.getId()).thenReturn("cs_test_customer_bound");
+        when(mockSession.getUrl()).thenReturn("https://checkout.stripe.com/pay/cs_test_customer_bound");
+
+        ArgumentCaptor<SessionCreateParams> paramsCaptor = ArgumentCaptor.forClass(SessionCreateParams.class);
+        when(stripeClient.checkout().sessions().create(paramsCaptor.capture())).thenReturn(mockSession);
+
+        CheckoutRequest request = new CheckoutRequest(
+            100L,
+            DeliveryMode.STANDARD,
+            List.of(new CheckoutItemRequest(10L, 1))
+        );
+
+        orderService.checkout(1L, null, request);
+
+        SessionCreateParams params = paramsCaptor.getValue();
+        assertEquals("cus_account_123", params.getCustomer());
+        verify(stripeCustomerService).getOrCreateStripeCustomer(1L, null);
     }
 
     @Test

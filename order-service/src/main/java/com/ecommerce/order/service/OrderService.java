@@ -51,6 +51,7 @@ public class OrderService {
     private final StripeProperties stripeProperties;
     private final KafkaTemplate<String, Object> kafkaTemplate;
     private final CatalogClient catalogClient;
+    private final StripeCustomerService stripeCustomerService;
 
     @Value("${app.kafka.topics.order-paid:order.paid}")
     private String orderPaidTopic;
@@ -163,10 +164,13 @@ public class OrderService {
 
     private Session createStripeSession(Order order, BigDecimal shippingFee) {
         try {
+            String stripeCustomerId = stripeCustomerService.getOrCreateStripeCustomer(order.getUserId(), null);
+
             SessionCreateParams.Builder params = SessionCreateParams.builder()
                 .setMode(SessionCreateParams.Mode.PAYMENT)
                 .setSuccessUrl(stripeProperties.getSuccessUrl())
                 .setCancelUrl(stripeProperties.getCancelUrl())
+                .setCustomer(stripeCustomerId)
                 .addPaymentMethodType(SessionCreateParams.PaymentMethodType.CARD)
                 .putMetadata("orderNumber", order.getOrderNumber());
 
