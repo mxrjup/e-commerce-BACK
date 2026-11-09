@@ -10,6 +10,7 @@ import com.ecommerce.order.config.StripeProperties;
 import com.ecommerce.order.dto.CheckoutItemRequest;
 import com.ecommerce.order.dto.CheckoutRequest;
 import com.ecommerce.order.dto.CheckoutResponse;
+import com.ecommerce.order.dto.OrderResponse;
 import com.ecommerce.order.entity.DeliveryMode;
 import com.ecommerce.order.entity.Order;
 import com.ecommerce.order.entity.OrderItem;
@@ -184,6 +185,51 @@ class OrderServiceTest {
         assertEquals(3181L, totalStripeCents);
         assertEquals("Livre technique (x3)", params.getLineItems().get(0).getPriceData().getProductData().getName());
         assertEquals(1L, params.getLineItems().get(0).getQuantity());
+    }
+
+    @Test
+    @DisplayName("Admin can list filtered orders")
+    void testGetOrdersForAdmin_FiltersByUserAndStatus() {
+        Order order1 = new Order();
+        order1.setUserId(9L);
+        order1.setOrderNumber("CMD-2026-000200");
+        order1.setStatus(OrderStatus.NEW);
+        orderRepository.save(order1);
+
+        Order order2 = new Order();
+        order2.setUserId(9L);
+        order2.setOrderNumber("CMD-2026-000201");
+        order2.setStatus(OrderStatus.IN_PREPARATION);
+        orderRepository.save(order2);
+
+        List<OrderResponse> orders = orderService.getOrdersForAdmin(9L, OrderStatus.NEW, null, null);
+
+        assertEquals(1, orders.size());
+        assertEquals("CMD-2026-000200", orders.get(0).getOrderNumber());
+    }
+
+    @Test
+    @DisplayName("Admin can fetch a complete order detail")
+    void testGetOrderForAdmin_ReturnsOrderDetail() {
+        Order order = new Order();
+        order.setUserId(7L);
+        order.setOrderNumber("CMD-2026-000310");
+        order.setStatus(OrderStatus.SHIPPED);
+        order.setShippingAddressId(123L);
+        order.setDeliveryMode(DeliveryMode.STANDARD);
+        order.setTotalExclTax(new BigDecimal("99.00"));
+        order.setTotalInclTax(new BigDecimal("118.80"));
+
+        OrderItem item = new OrderItem(order, 55L, "Casque audio", new BigDecimal("99.00"), new BigDecimal("20.00"), 1);
+        order.addItem(item);
+
+        Order saved = orderRepository.save(order);
+
+        OrderResponse detail = orderService.getOrderForAdmin(saved.getId());
+
+        assertEquals("CMD-2026-000310", detail.getOrderNumber());
+        assertEquals(1, detail.getItems().size());
+        assertEquals("Casque audio", detail.getItems().get(0).getDesignation());
     }
 
     @Test
