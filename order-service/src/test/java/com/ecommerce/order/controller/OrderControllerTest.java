@@ -1,5 +1,6 @@
 package com.ecommerce.order.controller;
 
+import com.ecommerce.order.dto.SavePaymentMethodRequest;
 import com.ecommerce.order.dto.SavedPaymentMethodResponse;
 import com.ecommerce.order.service.OrderService;
 import com.ecommerce.order.service.StripePaymentMethodService;
@@ -77,6 +78,21 @@ class OrderControllerTest {
                 .andExpect(jsonPath("$[0].stripePaymentMethodId").value("pm_123"))
                 .andExpect(jsonPath("$[0].brand").value("visa"))
                 .andExpect(jsonPath("$[0].defaultPaymentMethod").value(true));
+    }
+
+    @Test
+    @DisplayName("POST /api/orders/payment-methods saves a new Stripe payment method and returns 201")
+    void testSavePaymentMethod_ReturnsCreated() throws Exception {
+        when(stripePaymentMethodService.savePaymentMethod(42L, "pm_789")).thenReturn("pm_789");
+
+        mockMvc.perform(post("/api/orders/payment-methods")
+                        .header("X-User-Id", "42")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"paymentMethodId\":\"pm_789\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.stripePaymentMethodId").value("pm_789"));
+
+        verify(stripePaymentMethodService).savePaymentMethod(42L, "pm_789");
     }
 
     @Test

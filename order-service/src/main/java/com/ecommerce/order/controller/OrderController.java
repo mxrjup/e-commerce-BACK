@@ -2,6 +2,7 @@ package com.ecommerce.order.controller;
 
 import com.ecommerce.order.dto.CheckoutRequest;
 import com.ecommerce.order.dto.CheckoutResponse;
+import com.ecommerce.order.dto.SavePaymentMethodRequest;
 import com.ecommerce.order.dto.SavedPaymentMethodResponse;
 import com.ecommerce.order.dto.SetDefaultPaymentMethodRequest;
 import com.ecommerce.order.service.OrderService;
@@ -44,6 +45,17 @@ public class OrderController {
     public ResponseEntity<List<SavedPaymentMethodResponse>> getSavedPaymentMethods(
             @RequestHeader(value = HEADER_USER_ID, required = true) Long userId) {
         return ResponseEntity.ok(stripePaymentMethodService.getSavedPaymentMethods(userId));
+    }
+
+    @PostMapping("/payment-methods")
+    public ResponseEntity<SavedPaymentMethodResponse> savePaymentMethod(
+            @RequestHeader(value = HEADER_USER_ID, required = true) Long userId,
+            @Valid @RequestBody SavePaymentMethodRequest request) {
+        String paymentMethodId = stripePaymentMethodService.savePaymentMethod(userId, request.getPaymentMethodId());
+
+        SavedPaymentMethodResponse response = new SavedPaymentMethodResponse();
+        response.setStripePaymentMethodId(paymentMethodId);
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
     @PostMapping("/payment-methods/default")
