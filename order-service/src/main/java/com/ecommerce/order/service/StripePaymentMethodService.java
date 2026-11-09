@@ -1,0 +1,62 @@
+package com.ecommerce.order.service;
+
+import com.ecommerce.order.entity.CustomerProfile;
+import com.ecommerce.order.entity.SavedPaymentMethod;
+import com.ecommerce.order.repository.CustomerProfileRepository;
+import com.ecommerce.order.repository.SavedPaymentMethodRepository;
+import com.stripe.StripeClient;
+import com.stripe.model.PaymentMethod;
+import com.stripe.param.PaymentMethodAttachParams;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
+
+import java.util.Optional;
+
+@Service
+@RequiredArgsConstructor
+@Slf4j
+public class StripePaymentMethodService {
+
+    private final CustomerProfileRepository customerProfileRepository;
+    private final SavedPaymentMethodRepository savedPaymentMethodRepository;
+    private final StripeClient stripeClient;
+
+    public String savePaymentMethod(Long userId, String paymentMethodId) {
+        Optional<SavedPaymentMethod> existing = savedPaymentMethodRepository.findByUserIdAndStripePaymentMethodId(userId, paymentMethodId);
+        if (existing.isPresent()) {
+            log.info("Reusing saved Stripe payment method {} for user {}", paymentMethodId, userId);
+            return existing.get().getStripePaymentMethodId();
+        }
+
+        CustomerProfile profile = customerProfileRepository.findByUserId(userId)
+            .orElseThrow(() -> new IllegalStateException("No Stripe customer profile found for user " + userId));
+
+        if (profile.getStripeCustomerId() == null || profile.getStripeCustomerId().isBlank()) {
+            throw new IllegalStateException("User " + userId + " has no Stripe customer attached");
+        }
+
+        try {
+            PaymentMethod paymentMethod = stripeClient.paymentMethods().attach(
+                paymentMethodId,
+                PaymentMethodAttachParams.builder()
+                    .setCustomer(profile.getStripeCustomerId())
+                    .build()
+            );
+
+            SavedPaymentMethod savedPaymentMethod = new SavedPaymentMethod();
+            savedPaymentMethod.setUserId(userId);
+            savedPaymentMethod.setStripeCustomerId(profile.getStripeCustomerId());
+            savedPaymentMethod.setStripePaymentMethodId(paymentMethod.getId());
+            savedPaymentMethod.setBrand(paymentMethod.getCard() != null ? paymentMethod.getCard().getBrand() : null);
+            savedPaymentMethod.setLast4(paymentMethod.getCard() != null ? paymentMethod.getCard().getLast4() : null);
+            savedPaymentMethod.setDefaultPaymentMethod(false);
+            savedPaymentMethodRepository.save(savedPaymentMethod);
+
+            log.info("Attached Stripe payment method {} to customer {} for user {}", paymentMethod.getId(), profile.getStripeCustomerId(), userId);
+            return paymentMethod.getId();
+        } catch (Exception e) {
+            throw new IllegalStateException("Unable to attach Stripe payment method " + paymentMethodId + " to user " + userId, e);
+        }
+    }
+}
