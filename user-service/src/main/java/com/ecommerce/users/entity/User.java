@@ -8,8 +8,10 @@ import java.util.List;
 
 @Entity
 @Table(name = "utilisateur")
-@Getter @Setter
-@NoArgsConstructor @AllArgsConstructor
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
 @Builder
 public class User {
 
@@ -18,7 +20,7 @@ public class User {
     private Long id;
 
     @Column(name = "auth_provider_id", nullable = false, unique = true)
-    private String authProviderId; // Subject ('sub') claim from Keycloak JWT
+    private String authProviderId;
 
     @Column(nullable = false)
     private String email;
