@@ -61,6 +61,7 @@ class GatewaySecurityTest {
         registry.add("CART_SERVICE_URI", () -> uri);
         registry.add("ORDER_SERVICE_URI", () -> uri);
         registry.add("CATALOG_SERVICE_URI", () -> uri);
+        registry.add("USER_SERVICE_URI", () -> uri);
         // Le decodeur de jetons est mocke : ces URL ne sont jamais appelees,
         // elles evitent seulement un appel reseau au demarrage.
         registry.add("spring.security.oauth2.resourceserver.jwt.issuer-uri",
@@ -161,6 +162,30 @@ class GatewaySecurityTest {
                 .expectStatus().isOk();
 
         assertThat(BACKEND.takeRequest().getPath()).isEqualTo("/api/admin/catalog/brands");
+    }
+
+    @Test
+    void shouldReserveCollaboratorManagementToAdministrators() throws InterruptedException {
+        givenTokenFor("a-collaborator", "client", "collaborator");
+        webTestClient.get().uri("/api/admin/users/collaborators")
+                .header("Authorization", "Bearer any-value-the-decoder-is-mocked")
+                .exchange()
+                .expectStatus().isForbidden();
+        webTestClient.post().uri("/api/admin/users/collaborators/some-id/disable")
+                .header("Authorization", "Bearer any-value-the-decoder-is-mocked")
+                .exchange()
+                .expectStatus().isForbidden();
+
+        givenTokenFor("an-admin", "client", "collaborator", "admin");
+        BACKEND.enqueue(ok());
+        webTestClient.get().uri("/api/admin/users/collaborators")
+                .header("Authorization", "Bearer any-value-the-decoder-is-mocked")
+                .exchange()
+                .expectStatus().isOk();
+
+        RecordedRequest forwarded = BACKEND.takeRequest();
+        assertThat(forwarded.getPath()).isEqualTo("/api/admin/users/collaborators");
+        assertThat(forwarded.getHeader(IdentityHeadersFilter.SUBJECT_HEADER)).isEqualTo("an-admin");
     }
 
     @Test

@@ -57,6 +57,10 @@ public class SecurityConfig {
                         // Stripe doit pouvoir appeler le webhook sans bearer token,
                         // mais uniquement pour cette route et ce verbe.
                         .pathMatchers(HttpMethod.POST, "/api/orders/webhook").permitAll()
+                        // Les comptes du back-office (U04) : creer un collaborateur
+                        // ou changer un role est reserve aux administrateurs. Avant
+                        // la regle generale, la premiere qui correspond l'emporte.
+                        .pathMatchers("/api/admin/users/collaborators/**").hasRole("admin")
                         // « admin » inclut « collaborator » cote Keycloak ; les deux
                         // sont listes pour ne pas dependre de ce composite.
                         .pathMatchers("/api/admin/**").hasAnyRole("collaborator", "admin")

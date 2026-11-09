@@ -22,6 +22,10 @@ spring:
           uri: ${CATALOG_SERVICE_URI:http://localhost:8081}
           predicates:
             - Path=/api/admin/catalog/**
+        - id: users-admin
+          uri: ${USER_SERVICE_URI:http://localhost:8082}
+          predicates:
+            - Path=/api/admin/users/**
         - id: orders
           uri: ${ORDER_SERVICE_URI:http://localhost:8084}
           predicates:
