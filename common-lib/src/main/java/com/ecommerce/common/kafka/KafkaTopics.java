@@ -14,6 +14,9 @@ public final class KafkaTopics {
     /** Property: {@code app.kafka.topics.order-paid}. */
     public static final String ORDER_PAID = "order.paid";
 
+    /** Property: {@code app.kafka.topics.order-status-changed}. */
+    public static final String ORDER_STATUS_CHANGED = "order-status-changed";
+
     /** Property: {@code app.kafka.topics.catalog-events}. */
     public static final String CATALOG_EVENTS = "catalogue.evenements";
 

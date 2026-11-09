@@ -16,18 +16,20 @@ public class ShippingService {
         throw new IllegalArgumentException("Delivery mode is required");
     }
 
-    return switch(mode){
-        case CLICK_AND_COLLECT -> BigDecimal.ZERO;
-        case RELAY_POINT -> new BigDecimal("3.50");
-        case STANDARD -> {
-
-            if(subTotalInclTax != null && subTotalInclTax.compareTo(FREE_SHIPPING_THRESHOLD) >= 0){
-                yield BigDecimal.ZERO;
+    switch (mode) {
+        case CLICK_AND_COLLECT:
+            return BigDecimal.ZERO;
+        case RELAY_POINT:
+            return new BigDecimal("3.50");
+        case STANDARD:
+            if (subTotalInclTax != null && subTotalInclTax.compareTo(FREE_SHIPPING_THRESHOLD) >= 0) {
+                return BigDecimal.ZERO;
             }
-
-            yield new BigDecimal("4.90");
-        }
-        case EXPRESS -> new BigDecimal("9.90");
-    };
+            return new BigDecimal("4.90");
+        case EXPRESS:
+            return new BigDecimal("9.90");
+        default:
+            throw new IllegalArgumentException("Delivery mode unsupported: " + mode);
+    }
   }
 }
