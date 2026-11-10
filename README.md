@@ -236,7 +236,7 @@ où personne ne lira jamais rien.
 | `order-service` | Commandes, paiement, livraison | `O*` | 8084 | en place |
 | `notification-service` | Notifications, alertes, emails | `N*` | 8085 | à créer |
 | `support-service` | SAV, tickets | `S*` | 8086 | à créer |
-| `mcp-service` | Serveur MCP | `M*` | 8087 | à créer |
+| `mcp-service` | Serveur MCP | `M*` | 8087 | transport HTTP en place (`M01`, [guide](docs/mcp.md)) |
 | `api-gateway` | Routage, validation JWT, CORS | `T04` | 8080 | en place |
 
 Les ports sont réservés ici pour éviter les collisions en local et dans le
@@ -322,6 +322,7 @@ endroit où une route devient publique, authentifiée ou réservée au back-offi
 | `/api/admin/catalog/**` | `catalog-service` | rôle `collaborator` ou `admin` |
 | `/api/orders/**` | `order-service` | jeton valide |
 | `/api/admin/orders/**` | `order-service` | rôle `collaborator` ou `admin` |
+| `/api/mcp` | `mcp-service` | rôle `admin` |
 | `/actuator/health`, `/actuator/info` | gateway | public |
 | tout le reste | — | jeton valide : on refuse par défaut |
 
@@ -551,6 +552,10 @@ En cas d'échec, les rapports Surefire du module sont joints au run
 (`surefire-<module>`, gardés 7 jours).
 
 ## Ajouter un service
+
+Exception : `mcp-service` utilise un parent Boot 3.5 propre pour les exigences
+de Spring AI, sans modifier le couple Boot/Cloud de la gateway ; voir le
+[guide MCP](docs/mcp.md). Il n'utilise pas `common-lib`, de base SQL ou de Kafka.
 
 1. Créer le dossier `<domaine>-service`, en anglais et en kebab-case.
 2. Son `pom.xml` hérite de `com.ecommerce:ecommerce-parent` avec

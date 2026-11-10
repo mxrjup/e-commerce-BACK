@@ -182,6 +182,7 @@ sur le cluster, jamais versionné.
 | `CART_SERVICE_URI` | `http://localhost:8083` | `http://cart-service:8083` | idem | cible de `/api/cart/**` |
 | `CATALOG_SERVICE_URI` | `http://localhost:8081` | `http://catalog-service:8081` | à ajouter dans INFRA | cible de `/api/catalog/**`, `/api/admin/catalog/**` |
 | `ORDER_SERVICE_URI` | `http://localhost:8084` | `http://order-service:8084` | idem | cible de `/api/orders/**`, `/api/admin/orders/**` |
+| `MCP_SERVICE_URI` | `http://localhost:8087` | `http://mcp-service:8087` | à ajouter dans INFRA | cible de `/api/mcp` (admin) |
 | `CORS_ALLOWED_ORIGINS` | `http://localhost:5173,http://localhost:8081` | idem, via `.env` | `$(PUBLIC_URL)` | origines navigateur autorisées |
 
 L'issuer et l'URL des clés **diffèrent volontairement** : voir README,

@@ -10,6 +10,12 @@ spring:
       # Un service = une route. Les chemins /api/admin/** sont reserves au
       # back-office par SecurityConfig, quel que soit le service cible.
       routes:
+        - id: mcp
+          uri: ${MCP_SERVICE_URI:http://localhost:8087}
+          predicates:
+            - Path=/api/mcp
+          metadata:
+            response-timeout: -1
         - id: cart
           uri: ${CART_SERVICE_URI:http://localhost:8083}
           predicates:

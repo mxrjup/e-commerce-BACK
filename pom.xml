@@ -26,6 +26,7 @@
         <module>catalog-service</module>
         <module>cart-service</module>
         <module>order-service</module>
+        <module>mcp-service</module>
     </modules>
 
     <properties>

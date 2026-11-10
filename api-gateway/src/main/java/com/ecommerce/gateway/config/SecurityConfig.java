@@ -60,6 +60,7 @@ public class SecurityConfig {
                         // « admin » inclut « collaborator » cote Keycloak ; les deux
                         // sont listes pour ne pas dependre de ce composite.
                         .pathMatchers("/api/admin/**").hasAnyRole("collaborator", "admin")
+                        .pathMatchers("/api/mcp", "/api/mcp/**").hasRole("admin")
                         // Tout le reste exige un jeton valide : on refuse par defaut.
                         .anyExchange().authenticated())
                 .oauth2ResourceServer(oauth2 -> oauth2
@@ -84,8 +85,9 @@ public class SecurityConfig {
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         // X-Session-Token porte le panier invite : le navigateur doit pouvoir
         // l'envoyer et le relire.
-        configuration.setAllowedHeaders(List.of("Authorization", "Content-Type", "X-Session-Token"));
-        configuration.setExposedHeaders(List.of("X-Session-Token"));
+        configuration.setAllowedHeaders(List.of("Authorization", "Content-Type", "X-Session-Token",
+                "Accept", "Mcp-Session-Id", "MCP-Protocol-Version", "Last-Event-ID"));
+        configuration.setExposedHeaders(List.of("X-Session-Token", "Mcp-Session-Id"));
         configuration.setAllowCredentials(true);
         configuration.setMaxAge(Duration.ofHours(1));
 
