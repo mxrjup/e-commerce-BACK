@@ -43,7 +43,7 @@ base en mémoire :
 ## Stack locale (Docker Compose)
 
 `compose.yaml` démarre les dépendances dont les services ont besoin :
-PostgreSQL, Keycloak et Kafka.
+PostgreSQL, Keycloak et Kafka, plus Kafka UI pour observer Kafka.
 
 ```bash
 docker compose up -d              # les dépendances
@@ -58,6 +58,15 @@ docker compose down -v            # arrêt + remise à zéro des données
 | PostgreSQL | `localhost:5432` | `postgres:5432` | `postgres` / `postgres` |
 | Keycloak | <http://localhost:8180> | `keycloak:8080` | `admin` / `admin` |
 | Kafka | `localhost:29092` | `kafka:9092` | — |
+| Kafka UI | <http://localhost:8090> | `kafka-ui:8080` | — |
+
+**Kafka UI** montre les topics et leurs messages (corps JSON et en-têtes, dont
+le type de l'événement), les consumer groups et leur **retard**, et les topics
+de rebut `*.dlt` : c'est là qu'on lit le message et l'exception d'un traitement
+en échec. En local, elle peut aussi publier un message de test (*Produce
+Message*). Sur le cluster, elle est en lecture seule et se consulte par
+`kubectl port-forward` : voir le README de `e-commerce-INFRA`, qui porte aussi
+l'exporteur Prometheus et le dashboard Grafana de Kafka.
 
 Les valeurs par défaut suffisent : la stack démarre sans configuration. Pour en
 changer une, `cp .env.example .env` puis ajuster — le `.env` n'est jamais
@@ -480,8 +489,9 @@ curl -i http://localhost:8080/api/orders    # 401 sans jeton
 
 Par défaut elle valide les jetons contre
 `http://localhost:8180/realms/ecommerce` et route vers `localhost:8081`,
-`localhost:8082`, `localhost:8083`, `localhost:8084` et `localhost:8087`. Dans Docker, les variables de `compose.yaml` remplacent ces
-valeurs — en particulier les clés de signature, qui se récupèrent sur l'URL
+`localhost:8082`, `localhost:8083`, `localhost:8084` et `localhost:8087`. Dans
+Docker, les variables de `compose.yaml` remplacent ces valeurs — en particulier
+les clés de signature, qui se récupèrent sur l'URL
 interne de Keycloak alors que l'issuer reste l'URL frontale.
 
 ### CORS

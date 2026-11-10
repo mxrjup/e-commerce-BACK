@@ -1,15 +1,21 @@
 package com.ecommerce.order.service;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 import com.ecommerce.common.event.OrderPaidEvent;
+import com.ecommerce.common.event.OrderStatusChangedEvent;
+import com.ecommerce.common.kafka.KafkaTopics;
 import com.ecommerce.order.client.CatalogClient;
 import com.ecommerce.order.client.CatalogVariantResponse;
 import com.ecommerce.order.config.StripeProperties;
 import com.ecommerce.order.dto.CheckoutItemRequest;
 import com.ecommerce.order.dto.CheckoutRequest;
 import com.ecommerce.order.dto.CheckoutResponse;
+import com.ecommerce.order.dto.OrderResponse;
 import com.ecommerce.order.entity.DeliveryMode;
 import com.ecommerce.order.entity.Order;
 import com.ecommerce.order.entity.OrderItem;
@@ -187,6 +193,51 @@ class OrderServiceTest {
     }
 
     @Test
+    @DisplayName("Admin can list filtered orders")
+    void testGetOrdersForAdmin_FiltersByUserAndStatus() {
+        Order order1 = new Order();
+        order1.setUserId(9L);
+        order1.setOrderNumber("CMD-2026-000200");
+        order1.setStatus(OrderStatus.NEW);
+        orderRepository.save(order1);
+
+        Order order2 = new Order();
+        order2.setUserId(9L);
+        order2.setOrderNumber("CMD-2026-000201");
+        order2.setStatus(OrderStatus.IN_PREPARATION);
+        orderRepository.save(order2);
+
+        List<OrderResponse> orders = orderService.getOrdersForAdmin(9L, OrderStatus.NEW, null, null);
+
+        assertEquals(1, orders.size());
+        assertEquals("CMD-2026-000200", orders.get(0).getOrderNumber());
+    }
+
+    @Test
+    @DisplayName("Admin can fetch a complete order detail")
+    void testGetOrderForAdmin_ReturnsOrderDetail() {
+        Order order = new Order();
+        order.setUserId(7L);
+        order.setOrderNumber("CMD-2026-000310");
+        order.setStatus(OrderStatus.SHIPPED);
+        order.setShippingAddressId(123L);
+        order.setDeliveryMode(DeliveryMode.STANDARD);
+        order.setTotalExclTax(new BigDecimal("99.00"));
+        order.setTotalInclTax(new BigDecimal("118.80"));
+
+        OrderItem item = new OrderItem(order, 55L, "Casque audio", new BigDecimal("99.00"), new BigDecimal("20.00"), 1);
+        order.addItem(item);
+
+        Order saved = orderRepository.save(order);
+
+        OrderResponse detail = orderService.getOrderForAdmin(saved.getId());
+
+        assertEquals("CMD-2026-000310", detail.getOrderNumber());
+        assertEquals(1, detail.getItems().size());
+        assertEquals("Casque audio", detail.getItems().get(0).getDesignation());
+    }
+
+    @Test
     @DisplayName("Checkout restricts Stripe session to card payments")
     void testCheckout_StripeSessionUsesCardOnly() throws Exception {
         Session mockSession = mock(Session.class);
@@ -354,6 +405,33 @@ class OrderServiceTest {
         assertEquals(OrderStatus.NEW, updated.getStatus());
     }
 
+    @Test
+    @DisplayName("Status transition is allowed only for valid step changes")
+    void testUpdateStatus_AllowsValidTransitions() {
+        Order order = new Order();
+        order.setOrderNumber("ORD-42");
+        order.setStatus(OrderStatus.NEW);
+
+        orderService.updateStatus(order, OrderStatus.IN_PREPARATION);
+        assertEquals(OrderStatus.IN_PREPARATION, order.getStatus());
+
+        orderService.updateStatus(order, OrderStatus.SHIPPED);
+        assertEquals(OrderStatus.SHIPPED, order.getStatus());
+
+        orderService.updateStatus(order, OrderStatus.DELIVERED);
+        assertEquals(OrderStatus.DELIVERED, order.getStatus());
+    }
+
+    @Test
+    @DisplayName("Status transition rejects invalid state changes")
+    void testUpdateStatus_RejectsInvalidTransitions() {
+        Order order = new Order();
+        order.setStatus(OrderStatus.NEW);
+
+        assertThrows(IllegalStateException.class, () -> orderService.updateStatus(order, OrderStatus.DELIVERED));
+        assertThrows(IllegalStateException.class, () -> orderService.updateStatus(order, OrderStatus.CANCELLED));
+    }
+
     private String generateStripeSignature(String payload, String secret) throws Exception {
         long timestamp = Instant.now().getEpochSecond();
         String payloadToSign = timestamp + "." + payload;
@@ -368,4 +446,28 @@ class OrderServiceTest {
         }
         return "t=" + timestamp + ",v1=" + hex;
     }
+
+    @Test
+    void shouldPublishEventWhenStatusChanges() {
+        Order order = new Order();
+        order.setId(42L);
+        order.setOrderNumber("ORD-42");
+        order.setStatus(OrderStatus.NEW);
+
+        orderService.updateStatus(order, OrderStatus.IN_PREPARATION);
+
+        verify(kafkaTemplate).send(eq(KafkaTopics.ORDER_STATUS_CHANGED), any(OrderStatusChangedEvent.class));
+    }
+
+    @Test
+    void shouldNotPublishEventWhenTransitionIsInvalid() {
+        Order order = new Order();
+        order.setStatus(OrderStatus.NEW);
+
+        assertThrows(IllegalStateException.class,
+            () -> orderService.updateStatus(order, OrderStatus.DELIVERED));
+
+        verify(kafkaTemplate, never()).send(anyString(), any());
+    }
+
 }
