@@ -30,7 +30,7 @@ public class McpToken {
     private String prefix;
 
     /** SHA-256 of the token, in hexadecimal. The token itself is never stored. */
-    @Column(name = "empreinte", nullable = false, length = 64, updatable = false, columnDefinition = "CHAR(64)")
+    @Column(name = "empreinte", nullable = false, length = 64, updatable = false)
     private String hash;
 
     @Convert(converter = ScopesConverter.class)

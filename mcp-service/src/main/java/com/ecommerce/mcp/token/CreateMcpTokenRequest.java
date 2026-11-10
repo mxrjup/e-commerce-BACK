@@ -3,6 +3,7 @@ package com.ecommerce.mcp.token;
 import jakarta.validation.constraints.Future;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
+import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 
 import java.time.Instant;
@@ -18,7 +19,7 @@ public record CreateMcpTokenRequest(
         String name,
 
         @NotEmpty(message = "scopes must contain at least one scope")
-        Set<McpScope> scopes,
+        Set<@NotNull(message = "scopes must not contain null") McpScope> scopes,
 
         @Future(message = "expiresAt must be in the future")
         Instant expiresAt) {

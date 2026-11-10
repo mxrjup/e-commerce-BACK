@@ -135,6 +135,14 @@ class McpTokenApiTest {
         }
 
         @Test
+        void shouldRejectANullScope() throws Exception {
+            create("{\"name\":\"x\",\"scopes\":[null]}")
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.details", contains("scopes must not contain null")));
+            assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM jeton_mcp", Long.class)).isZero();
+        }
+
+        @Test
         void shouldRejectAnUnknownScope() throws Exception {
             create("{\"name\":\"x\",\"scopes\":[\"orders:write\"]}").andExpect(status().isBadRequest());
             assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM jeton_mcp", Long.class)).isZero();
