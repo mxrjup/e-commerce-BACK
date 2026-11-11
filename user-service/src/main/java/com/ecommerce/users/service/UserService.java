@@ -50,4 +50,30 @@ public class UserService {
         }
         return false;
     }
+
+    @Transactional(readOnly = true)
+    public UserProfileResponseDto getUserProfile(Jwt jwt) {
+        User user = syncUserFromJwt(jwt);
+        return mapToProfileDto(user);
+    }
+
+    @Transactional
+    public UserProfileResponseDto updateUserProfile(Jwt jwt, UserProfileUpdateRequestDto dto) {
+        User user = syncUserFromJwt(jwt);
+        user.setFirstName(dto.getFirstName());
+        user.setLastName(dto.getLastName());
+        user.setPhone(dto.getPhone());
+        return mapToProfileDto(userRepository.save(user));
+    }
+
+    private UserProfileResponseDto mapToProfileDto(User user) {
+        return UserProfileResponseDto.builder()
+                .id(user.getId())
+                .authProviderId(user.getAuthProviderId())
+                .email(user.getEmail())
+                .firstName(user.getFirstName())
+                .lastName(user.getLastName())
+                .phone(user.getPhone())
+                .build();
+    }
 }
