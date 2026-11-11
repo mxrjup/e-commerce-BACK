@@ -50,6 +50,9 @@ public class Order {
     @Column(name = "session_token")
     private String sessionToken;
 
+    @Column(name = "invoice_url")
+    private String invoiceUrl;
+
     @Column(name = "transporteur")
     private String carrier;
 
