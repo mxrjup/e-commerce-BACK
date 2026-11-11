@@ -4,9 +4,11 @@ import jakarta.persistence.*;
 import lombok.*;
 
 @Entity
-@Table(name = "adresse")
-@Getter @Setter
-@NoArgsConstructor @AllArgsConstructor
+@Table(name = "addresses")
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
 @Builder
 public class Address {
 
@@ -15,29 +17,28 @@ public class Address {
     private Long id;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "utilisateur_id", nullable = false)
+    @JoinColumn(name = "user_id", nullable = false)
     private User user;
 
-    @Column(name = "libelle")
     private String label;
 
-    @Column(name = "destinataire")
+    @Column(nullable = false)
     private String recipient;
 
-    @Column(name = "rue")
+    @Column(nullable = false)
     private String street;
 
     private String complement;
 
-    @Column(name = "code_postal", nullable = false)
+    @Column(nullable = false, length = 20)
     private String zipCode;
 
-    @Column(name = "ville", nullable = false)
+    @Column(nullable = false)
     private String city;
 
-    @Column(name = "pays", nullable = false)
+    @Column(nullable = false)
     private String country;
 
-    @Column(name = "par_defaut", nullable = false)
+    @Column(nullable = false)
     private boolean isDefault;
 }
