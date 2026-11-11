@@ -6,6 +6,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import com.ecommerce.users.dto.UserProfileResponseDto;
+import com.ecommerce.users.dto.UserProfileUpdateRequestDto;
 
 import java.util.List;
 import java.util.Map;
