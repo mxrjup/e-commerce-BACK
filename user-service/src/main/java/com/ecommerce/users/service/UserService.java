@@ -78,4 +78,21 @@ public class UserService {
                 .phone(user.getPhone())
                 .build();
     }
+
+    @Transactional(readOnly = true)
+    public Page<UserAdminResponseDto> getUsers(String search, Pageable pageable) {
+        return userRepository.searchUsers(search, pageable)
+                .map(this::mapToAdminDto);
+    }
+
+    private UserAdminResponseDto mapToAdminDto(User user) {
+        return UserAdminResponseDto.builder()
+                .id(user.getId())
+                .authProviderId(user.getAuthProviderId())
+                .email(user.getEmail())
+                .firstName(user.getFirstName())
+                .lastName(user.getLastName())
+                .phone(user.getPhone())
+                .build();
+    }
 }

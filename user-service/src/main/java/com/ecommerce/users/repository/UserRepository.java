@@ -6,4 +6,10 @@ import java.util.Optional;
 
 public interface UserRepository extends JpaRepository<User, Long> {
     Optional<User> findByAuthProviderId(String authProviderId);
+
+    @Query("SELECT u FROM User u WHERE " +
+           "(:search IS NULL OR LOWER(u.email) LIKE LOWER(CONCAT('%', :search, '%')) " +
+           "OR LOWER(u.firstName) LIKE LOWER(CONCAT('%', :search, '%')) " +
+           "OR LOWER(u.lastName) LIKE LOWER(CONCAT('%', :search, '%')))")
+    Page<User> searchUsers(@Param("search") String search, Pageable pageable);
 }
