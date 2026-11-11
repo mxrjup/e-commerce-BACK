@@ -96,6 +96,7 @@ class OrderControllerTest {
             BigDecimal.valueOf(149.90),
             BigDecimal.valueOf(149.90),
             Instant.parse("2026-11-11T10:30:00Z"),
+            "https://invoice.stripe.com/invoice/test_123",
             List.of()
         );
 
@@ -108,7 +109,8 @@ class OrderControllerTest {
                 .andExpect(jsonPath("$.id").value(42))
                 .andExpect(jsonPath("$.orderNumber").value("CMD-2026-000123"))
                 .andExpect(jsonPath("$.status").value("PAID"))
-                .andExpect(jsonPath("$.deliveryMode").value("STANDARD"));
+                .andExpect(jsonPath("$.deliveryMode").value("STANDARD"))
+                .andExpect(jsonPath("$.invoiceUrl").value("https://invoice.stripe.com/invoice/test_123"));
 
         verify(orderService).getOrderDetail(42L, 42L);
     }

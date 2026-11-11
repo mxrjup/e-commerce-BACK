@@ -13,6 +13,7 @@ public record OrderDetailResponse(
     BigDecimal totalExclTax,
     BigDecimal totalInclTax,
     Instant createdAt,
+    String invoiceUrl,
     List<OrderItemResponse> items
 ) {
     public static OrderDetailResponse fromEntity(Order order) {
@@ -24,6 +25,7 @@ public record OrderDetailResponse(
             order.getTotalExclTax(),
             order.getTotalInclTax(),
             order.getCreatedAt(),
+            order.getInvoiceUrl(),
             order.getItems() == null ? List.of() : order.getItems().stream()
                 .map(OrderItemResponse::fromEntity)
                 .toList()
