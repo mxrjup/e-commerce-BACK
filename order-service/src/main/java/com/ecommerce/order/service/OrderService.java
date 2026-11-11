@@ -20,6 +20,7 @@ import com.ecommerce.order.config.StripeProperties;
 import com.ecommerce.order.dto.CheckoutItemRequest;
 import com.ecommerce.order.dto.CheckoutRequest;
 import com.ecommerce.order.dto.CheckoutResponse;
+import com.ecommerce.order.dto.OrderDetailResponse;
 import com.ecommerce.order.dto.OrderHistoryResponse;
 import com.ecommerce.order.dto.OrderResponse;
 import com.ecommerce.order.entity.Order;
@@ -112,6 +113,17 @@ public class OrderService {
         return orderRepository.findByUserIdOrderByCreatedAtDesc(userId).stream()
             .map(OrderHistoryResponse::fromEntity)
             .toList();
+    }
+
+    public OrderDetailResponse getOrderDetail(Long userId, Long orderId) {
+        Order order = orderRepository.findById(orderId)
+            .orElseThrow(() -> new ResourceNotFoundException("Commande introuvable : " + orderId));
+
+        if (!order.getUserId().equals(userId)) {
+            throw new ResourceNotFoundException("Commande introuvable : " + orderId);
+        }
+
+        return OrderDetailResponse.fromEntity(order);
     }
 
     @Transactional
