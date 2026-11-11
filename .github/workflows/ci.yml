@@ -1,0 +1,110 @@
+# Build et tests du back-end, par module, a chaque Pull Request et a chaque
+# merge sur dev ou main (D02 #53).
+#
+# Seuls les modules touches sont reconstruits : le job « changes » les calcule
+# avec .github/scripts/ci-modules.sh, puis le job « build » lance un job par
+# module. Le job final « CI » resume le tout : c'est lui, et lui seul, qu'il
+# faut rendre obligatoire dans la protection des branches, puisque les jobs
+# par module n'existent que quand leur module change.
+name: CI
+
+on:
+  pull_request:
+    branches: [dev, main]
+  push:
+    branches: [dev, main]
+  workflow_dispatch:
+
+# Un nouveau push sur une PR annule le run precedent, devenu inutile. Les runs
+# de dev et main vont toujours au bout.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  changes:
+    name: Modules touches
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      modules: ${{ steps.modules.outputs.modules }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # L'historique complet : le diff part du point de depart de la branche.
+          fetch-depth: 0
+
+      - id: modules
+        name: Calculer les modules a construire
+        env:
+          # PR : depuis la base de la PR. Push : depuis le commit precedent,
+          # absent (zeros) au premier push. Lancement manuel : pas de base,
+          # donc tout.
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          modules=$(.github/scripts/ci-modules.sh "$BASE" "$HEAD_SHA")
+          echo "modules=$modules" >> "$GITHUB_OUTPUT"
+          echo "Modules a construire : \`$modules\`" >> "$GITHUB_STEP_SUMMARY"
+
+  build:
+    name: ${{ matrix.module }}
+    needs: changes
+    if: needs.changes.outputs.modules != '[]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      # Un module en echec n'interrompt pas les autres : on veut tous les
+      # resultats d'un coup.
+      fail-fast: false
+      matrix:
+        module: ${{ fromJSON(needs.changes.outputs.modules) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      # Les modules dont il depend (POM parent, common-lib), sans leurs tests :
+      # ils ont leur propre job quand ils changent.
+      - name: Construire les dependances
+        env:
+          MODULE: ${{ matrix.module }}
+        run: ./mvnw -B -ntp -pl "$MODULE" -am -DskipTests install
+
+      - name: Build et tests
+        env:
+          MODULE: ${{ matrix.module }}
+        run: ./mvnw -B -ntp -pl "$MODULE" verify
+
+      - name: Rapports de tests
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: surefire-${{ matrix.module }}
+          path: ${{ matrix.module }}/target/surefire-reports/
+          retention-days: 7
+
+  ci:
+    name: CI
+    if: always()
+    needs: [changes, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # « skipped » pour build : aucun module touche (README seul, compose...),
+      # rien a verifier.
+      - name: Resultat
+        env:
+          CHANGES: ${{ needs.changes.result }}
+          BUILD: ${{ needs.build.result }}
+        run: |
+          echo "changes=$CHANGES build=$BUILD"
+          [[ "$CHANGES" == success ]] || exit 1
+          [[ "$BUILD" == success || "$BUILD" == skipped ]] || exit 1

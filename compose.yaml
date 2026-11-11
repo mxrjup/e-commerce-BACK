@@ -1,0 +1,280 @@
+# Stack de developpement local : Postgres, Keycloak, Kafka, et les services
+# applicatifs derriere le profil « services ».
+#
+#   docker compose up -d                      # les dependances seules
+#   docker compose --profile services up -d   # + les services applicatifs
+#   docker compose down                       # arret (les volumes sont gardes)
+#   docker compose down -v                    # arret + remise a zero des donnees
+#
+# Ce fichier ne sert QUE en local. Les environnements deployes passent par les
+# manifests Kubernetes (D04 #88) et des Secrets : les identifiants ci-dessous
+# sont des valeurs de developpement, surchargeables par un fichier .env local
+# (voir .env.example).
+name: ecommerce
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: ecommerce-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-postgres}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      # Cree une base par service au premier demarrage, sur un volume vide.
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-postgres}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    container_name: ecommerce-keycloak
+    # start-dev : HTTP en clair et pas de cache distribue. Jamais en deploye.
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
+      KC_DB_USERNAME: ${POSTGRES_USER:-postgres}
+      KC_DB_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      KC_HEALTH_ENABLED: "true"
+      KC_HTTP_ENABLED: "true"
+      # Lues par le realm importe, via ses expressions ${VARIABLE:defaut}.
+      # Sans prefixe « env. » : Keycloak ne le reconnait pas et prendrait
+      # toujours la valeur par defaut.
+      # L'URL frontale fixe l'issuer des jetons : la meme valeur pour les
+      # navigateurs et pour les services, sinon la validation echoue.
+      KEYCLOAK_FRONTEND_URL: ${KEYCLOAK_FRONTEND_URL:-http://localhost:8180}
+      # Une variable transmise vide l'emporterait sur le defaut du realm :
+      # « set-me » est repris ici, comme sur le cluster ou elles sont absentes.
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-set-me}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-set-me}
+      APPLE_CLIENT_ID: ${APPLE_CLIENT_ID:-set-me}
+      APPLE_CLIENT_SECRET: ${APPLE_CLIENT_SECRET:-set-me}
+    ports:
+      - "${KEYCLOAK_PORT:-8180}:8080"
+    volumes:
+      # Realm « ecommerce » (T03 #83), importe au demarrage.
+      - ./docker/keycloak/import:/opt/keycloak/data/import:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      # L'image Keycloak ne contient ni curl ni wget : on interroge le port de
+      # management (9000) avec le /dev/tcp de bash.
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/9000 && printf 'GET /health/ready HTTP/1.1\\r\\nHost: 127.0.0.1\\r\\nConnection: close\\r\\n\\r\\n' >&3 && grep -q '\"UP\"' <&3"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+    restart: unless-stopped
+
+  # Interface web de Kafka (K03 #76) : topics, messages, consumer groups et
+  # leur retard, DLT. Ecriture autorisee en local, pour publier un message de
+  # test ; elle est en lecture seule sur le cluster (e-commerce-INFRA).
+  kafka-ui:
+    image: ghcr.io/kafbat/kafka-ui:v1.4.2
+    container_name: ecommerce-kafka-ui
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+      # Configuration figee par ces variables, pas modifiable depuis l'UI.
+      DYNAMIC_CONFIG_ENABLED: "false"
+    ports:
+      # 8080 est pris par la gateway.
+      - "${KAFKA_UI_PORT:-8090}:8080"
+    depends_on:
+      kafka:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/actuator/health | grep -q UP"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    restart: unless-stopped
+
+  kafka:
+    image: apache/kafka:3.8.1
+    container_name: ecommerce-kafka
+    environment:
+      # KRaft, un seul noeud qui cumule les roles broker et controller.
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      CLUSTER_ID: ecommerce-local-kraft-01
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      # INTERNAL : depuis le reseau Docker. EXTERNAL : depuis la machine hote,
+      # pour lancer un service dans l'IDE en gardant Kafka dans Docker.
+      KAFKA_LISTENERS: INTERNAL://:9092,CONTROLLER://:9093,EXTERNAL://:29092
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:9092,EXTERNAL://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      # Les topics sont crees explicitement par kafka-init : un nom mal
+      # orthographie dans un service doit echouer, pas creer un topic fantome
+      # ou personne ne lira jamais rien.
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+    ports:
+      - "${KAFKA_PORT:-29092}:29092"
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 > /dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 20
+      start_period: 15s
+    restart: unless-stopped
+
+  # Cree les topics une fois le broker pret, puis s'arrete. Idempotent : un
+  # `docker compose up` sur une stack deja en place ne fait rien de plus.
+  # La liste des topics est dans le script, pas ici.
+  kafka-init:
+    image: apache/kafka:3.8.1
+    container_name: ecommerce-kafka-init
+    environment:
+      KAFKA_BOOTSTRAP_SERVER: kafka:9092
+      KAFKA_TOPIC_PARTITIONS: ${KAFKA_TOPIC_PARTITIONS:-3}
+    volumes:
+      - ./docker/kafka/create-topics.sh:/create-topics.sh:ro
+    entrypoint: ["/bin/bash", "/create-topics.sh"]
+    depends_on:
+      kafka:
+        condition: service_healthy
+    restart: "no"
+
+  # ---------------------------------------------------------------------------
+  # Services applicatifs. Profil « services » : ils ne demarrent pas avec un
+  # simple `docker compose up`.
+  # Tous se construisent avec le Dockerfile de la racine, qui prend le module en
+  # parametre. Un nouveau service se branche ici sur le meme modele, avec sa
+  # base dediee (voir docker/postgres/init/01-databases.sql) et son port du
+  # README.
+  # ---------------------------------------------------------------------------
+  api-gateway:
+    profiles: ["services"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        MODULE: api-gateway
+        SERVER_PORT: 8080
+    container_name: ecommerce-api-gateway
+    environment:
+      SERVER_PORT: 8080
+      # L'issuer est l'URL frontale : c'est ce que contient le jeton, et le
+      # navigateur doit voir la meme. Les cles, elles, se recuperent sur le
+      # reseau Docker, ou « localhost:8180 » ne designerait pas Keycloak.
+      KEYCLOAK_ISSUER_URI: ${KEYCLOAK_FRONTEND_URL:-http://localhost:8180}/realms/ecommerce
+      KEYCLOAK_JWK_SET_URI: http://keycloak:8080/realms/ecommerce/protocol/openid-connect/certs
+      CART_SERVICE_URI: http://cart-service:8083
+      CATALOG_SERVICE_URI: http://catalog-service:8081
+      ORDER_SERVICE_URI: http://order-service:8084
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:5173,http://localhost:8081}
+    ports:
+      - "${GATEWAY_PORT:-8080}:8080"
+    depends_on:
+      keycloak:
+        condition: service_healthy
+    restart: unless-stopped
+
+  cart-service:
+    profiles: ["services"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        MODULE: cart-service
+        SERVER_PORT: 8083
+    container_name: ecommerce-cart-service
+    environment:
+      SERVER_PORT: 8083
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${CART_DB_NAME:-ecommerce_cart}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-postgres}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+    ports:
+      - "8083:8083"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      # Les topics, pas seulement le broker : l'auto-creation est coupee, un
+      # consommateur demarre avant kafka-init ne voit pas son topic.
+      kafka-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  catalog-service:
+    profiles: ["services"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        MODULE: catalog-service
+        SERVER_PORT: 8081
+    container_name: ecommerce-catalog-service
+    environment:
+      SERVER_PORT: 8081
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${CATALOG_DB_NAME:-ecommerce_catalog}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-postgres}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    ports:
+      # 8081 est aussi le port par defaut du serveur Expo : CATALOG_PORT permet
+      # de publier le catalogue ailleurs sur l'hote quand les deux tournent.
+      - "${CATALOG_PORT:-8081}:8081"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  order-service:
+    profiles: ["services"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        MODULE: order-service
+        SERVER_PORT: 8084
+    container_name: ecommerce-order-service
+    environment:
+      SERVER_PORT: 8084
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${ORDER_DB_NAME:-ecommerce_order}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-postgres}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      CATALOG_SERVICE_URL: http://catalog-service:8081
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+    ports:
+      - "8084:8084"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      # Producteur de order.paid : comme cart-service, il attend les topics et
+      # pas seulement le broker, l'auto-creation etant coupee.
+      kafka-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  kafka-data:

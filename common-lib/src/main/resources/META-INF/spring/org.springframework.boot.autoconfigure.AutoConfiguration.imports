@@ -1,0 +1,2 @@
+com.ecommerce.common.web.ErrorHandlingAutoConfiguration
+com.ecommerce.common.kafka.KafkaErrorHandlingAutoConfiguration
