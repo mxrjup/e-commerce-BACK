@@ -274,6 +274,50 @@ class OrderServiceTest {
     }
 
     @Test
+    @DisplayName("Checkout rejects variant when catalog says it is unavailable")
+    void testCheckout_VariantUnavailable_ThrowsException() {
+        when(catalogClient.getVariant(77L)).thenReturn(
+            new CatalogVariantResponse(77L, "Produit indisponible", new BigDecimal("50.00"), new BigDecimal("20.00"), new BigDecimal("35.00"), 0, false)
+        );
+
+        CheckoutRequest request = new CheckoutRequest(100L, DeliveryMode.STANDARD,
+            List.of(new CheckoutItemRequest(77L, 1)));
+
+        assertThrows(IllegalArgumentException.class, () -> orderService.checkout(1L, null, request));
+    }
+
+    @Test
+    @DisplayName("Checkout rejects quantity above available stock")
+    void testCheckout_InsufficientStock_ThrowsException() {
+        when(catalogClient.getVariant(88L)).thenReturn(
+            new CatalogVariantResponse(88L, "Produit en stock limité", new BigDecimal("12.00"), new BigDecimal("20.00"), new BigDecimal("8.00"), 2, true)
+        );
+
+        CheckoutRequest request = new CheckoutRequest(100L, DeliveryMode.STANDARD,
+            List.of(new CheckoutItemRequest(88L, 3)));
+
+        assertThrows(IllegalArgumentException.class, () -> orderService.checkout(1L, null, request));
+    }
+
+    @Test
+    @DisplayName("Checkout preserves purchase price in order lines to freeze the margin")
+    void testCheckout_FreezesPurchasePriceInOrderItem() {
+        when(catalogClient.getVariant(99L)).thenReturn(
+            new CatalogVariantResponse(99L, "Produit avec coût d'achat", new BigDecimal("90.00"), new BigDecimal("20.00"), new BigDecimal("60.00"), 10, true)
+        );
+
+        CheckoutRequest request = new CheckoutRequest(100L, DeliveryMode.STANDARD,
+            List.of(new CheckoutItemRequest(99L, 2)));
+
+        CheckoutResponse response = orderService.checkout(1L, null, request);
+
+        Order savedOrder = orderRepository.findByOrderNumber(response.getOrderNumber()).orElseThrow();
+        OrderItem item = savedOrder.getItems().get(0);
+        assertEquals(new BigDecimal("60.00"), item.getPurchasePriceExclTax());
+        assertEquals(new BigDecimal("180.00"), item.getSubTotalExclTax());
+    }
+
+    @Test
     @DisplayName("Webhook accepts async payment success events for deferred Stripe payments")
     void testHandleStripeWebhook_AsyncPaymentSucceeded() throws Exception {
         Order order = new Order();

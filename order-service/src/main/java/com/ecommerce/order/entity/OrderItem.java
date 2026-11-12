@@ -25,14 +25,22 @@ public class OrderItem {
     private BigDecimal unitPriceExclTax;
     @Column(name = "taux_tva", nullable = false, precision = 5, scale = 2)
     private BigDecimal vatRate;
+    @Column(name = "prix_achat_ht", precision = 10, scale = 2)
+    private BigDecimal purchasePriceExclTax;
     @Column(name = "quantite", nullable = false)
     private int quantity;
     public OrderItem(Order order, Long variantId, String designation, BigDecimal unitPriceExclTax, BigDecimal vatRate, int quantity) {
+        this(order, variantId, designation, unitPriceExclTax, vatRate, null, quantity);
+    }
+
+    public OrderItem(Order order, Long variantId, String designation, BigDecimal unitPriceExclTax, BigDecimal vatRate,
+                    BigDecimal purchasePriceExclTax, int quantity) {
         this.order = order;
         this.variantId = variantId;
         this.designation = designation;
         this.unitPriceExclTax = unitPriceExclTax;
         this.vatRate = vatRate;
+        this.purchasePriceExclTax = purchasePriceExclTax;
         this.quantity = quantity;
     }
 

@@ -145,6 +145,15 @@ public class OrderService {
             if (variant == null) {
                 throw new IllegalArgumentException("Variante introuvable dans le catalogue : " + itemReq.getVariantId());
             }
+            if (!variant.available()) {
+                throw new IllegalArgumentException("Variante indisponible dans le catalogue : " + itemReq.getVariantId());
+            }
+            if (itemReq.getQuantity() > variant.stock()) {
+                throw new IllegalArgumentException(
+                    "Quantité demandée supérieure au stock disponible pour la variante " + itemReq.getVariantId() +
+                        " (demande : " + itemReq.getQuantity() + ", stock : " + variant.stock() + ")"
+                );
+            }
 
             OrderItem item = new OrderItem(
                 order,
@@ -152,6 +161,7 @@ public class OrderService {
                 variant.designation(),
                 variant.unitPriceExclTax(),
                 variant.vatRate(),
+                variant.purchasePriceExclTax(),
                 itemReq.getQuantity()
             );
             order.addItem(item);
