@@ -8,6 +8,7 @@ import static org.mockito.Mockito.*;
 
 import com.ecommerce.common.event.OrderPaidEvent;
 import com.ecommerce.common.event.OrderStatusChangedEvent;
+import com.ecommerce.common.exception.ConflictException;
 import com.ecommerce.common.kafka.KafkaTopics;
 import com.ecommerce.order.client.CatalogClient;
 import com.ecommerce.order.client.CatalogVariantResponse;
@@ -134,10 +135,10 @@ class OrderServiceTest {
     @DisplayName("Checkout calculates totals, shipping fee and returns Stripe session")
     void testCheckout_CalculatesTotalsAndCreatesStripeSession() throws Exception {
         when(catalogClient.getVariant(10L)).thenReturn(
-            new CatalogVariantResponse(10L, "Souris gamer", new BigDecimal("50.00"), new BigDecimal("20.00"))
+            new CatalogVariantResponse(10L, "Souris gamer", new BigDecimal("50.00"), new BigDecimal("20.00"), new BigDecimal("35.00"), 25, true)
         );
         when(catalogClient.getVariant(20L)).thenReturn(
-            new CatalogVariantResponse(20L, "Tapis de souris", new BigDecimal("20.00"), new BigDecimal("20.00"))
+            new CatalogVariantResponse(20L, "Tapis de souris", new BigDecimal("20.00"), new BigDecimal("20.00"), new BigDecimal("12.00"), 15, true)
         );
 
         Session mockSession = mock(Session.class);
@@ -175,7 +176,7 @@ class OrderServiceTest {
         when(stripeClient.checkout().sessions().create(paramsCaptor.capture())).thenReturn(mockSession);
 
         when(catalogClient.getVariant(30L)).thenReturn(
-            new CatalogVariantResponse(30L, "Livre technique", new BigDecimal("10.05"), new BigDecimal("5.50"))
+            new CatalogVariantResponse(30L, "Livre technique", new BigDecimal("10.05"), new BigDecimal("5.50"), new BigDecimal("7.50"), 10, true)
         );
 
         CheckoutItemRequest item = new CheckoutItemRequest(30L, 3);
@@ -251,7 +252,7 @@ class OrderServiceTest {
         when(stripeClient.checkout().sessions().create(paramsCaptor.capture())).thenReturn(mockSession);
 
         when(catalogClient.getVariant(40L)).thenReturn(
-            new CatalogVariantResponse(40L, "Chargeur USB-C", new BigDecimal("15.00"), new BigDecimal("20.00"))
+            new CatalogVariantResponse(40L, "Chargeur USB-C", new BigDecimal("15.00"), new BigDecimal("20.00"), new BigDecimal("9.00"), 10, true)
         );
 
         CheckoutRequest request = new CheckoutRequest(100L, DeliveryMode.STANDARD, List.of(new CheckoutItemRequest(40L, 1)));
@@ -270,7 +271,51 @@ class OrderServiceTest {
         CheckoutItemRequest item = new CheckoutItemRequest(999L, 1);
         CheckoutRequest request = new CheckoutRequest(100L, DeliveryMode.STANDARD, List.of(item));
 
-        assertThrows(IllegalArgumentException.class, () -> orderService.checkout(1L, null, request));
+        assertThrows(ConflictException.class, () -> orderService.checkout(1L, null, request));
+    }
+
+    @Test
+    @DisplayName("Checkout rejects variant when catalog says it is unavailable")
+    void testCheckout_VariantUnavailable_ThrowsException() {
+        when(catalogClient.getVariant(77L)).thenReturn(
+            new CatalogVariantResponse(77L, "Produit indisponible", new BigDecimal("50.00"), new BigDecimal("20.00"), new BigDecimal("35.00"), 0, false)
+        );
+
+        CheckoutRequest request = new CheckoutRequest(100L, DeliveryMode.STANDARD,
+            List.of(new CheckoutItemRequest(77L, 1)));
+
+        assertThrows(ConflictException.class, () -> orderService.checkout(1L, null, request));
+    }
+
+    @Test
+    @DisplayName("Checkout rejects quantity above available stock")
+    void testCheckout_InsufficientStock_ThrowsException() {
+        when(catalogClient.getVariant(88L)).thenReturn(
+            new CatalogVariantResponse(88L, "Produit en stock limité", new BigDecimal("12.00"), new BigDecimal("20.00"), new BigDecimal("8.00"), 2, true)
+        );
+
+        CheckoutRequest request = new CheckoutRequest(100L, DeliveryMode.STANDARD,
+            List.of(new CheckoutItemRequest(88L, 3)));
+
+        assertThrows(ConflictException.class, () -> orderService.checkout(1L, null, request));
+    }
+
+    @Test
+    @DisplayName("Checkout preserves purchase price in order lines to freeze the margin")
+    void testCheckout_FreezesPurchasePriceInOrderItem() {
+        when(catalogClient.getVariant(99L)).thenReturn(
+            new CatalogVariantResponse(99L, "Produit avec coût d'achat", new BigDecimal("90.00"), new BigDecimal("20.00"), new BigDecimal("60.00"), 10, true)
+        );
+
+        CheckoutRequest request = new CheckoutRequest(100L, DeliveryMode.STANDARD,
+            List.of(new CheckoutItemRequest(99L, 2)));
+
+        CheckoutResponse response = orderService.checkout(1L, null, request);
+
+        Order savedOrder = orderRepository.findByOrderNumber(response.getOrderNumber()).orElseThrow();
+        OrderItem item = savedOrder.getItems().get(0);
+        assertEquals(new BigDecimal("60.00"), item.getPurchasePriceExclTax());
+        assertEquals(new BigDecimal("180.00"), item.getSubTotalExclTax());
     }
 
     @Test

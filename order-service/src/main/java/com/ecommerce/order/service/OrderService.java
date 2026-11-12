@@ -13,6 +13,7 @@ import java.util.concurrent.TimeUnit;
 import com.ecommerce.common.event.OrderPaidEvent;
 import com.ecommerce.common.event.OrderStatusChangedEvent;
 import com.ecommerce.common.kafka.KafkaTopics;
+import com.ecommerce.common.exception.ConflictException;
 import com.ecommerce.common.exception.ResourceNotFoundException;
 import com.ecommerce.order.client.CatalogClient;
 import com.ecommerce.order.client.CatalogVariantResponse;
@@ -143,7 +144,16 @@ public class OrderService {
         for (CheckoutItemRequest itemReq : request.getItems()) {
             CatalogVariantResponse variant = catalogClient.getVariant(itemReq.getVariantId());
             if (variant == null) {
-                throw new IllegalArgumentException("Variante introuvable dans le catalogue : " + itemReq.getVariantId());
+                throw new ConflictException("Variante introuvable dans le catalogue : " + itemReq.getVariantId());
+            }
+            if (!variant.available()) {
+                throw new ConflictException("Variante indisponible dans le catalogue : " + itemReq.getVariantId());
+            }
+            if (itemReq.getQuantity() > variant.stock()) {
+                throw new ConflictException(
+                    "Quantité demandée supérieure au stock disponible pour la variante " + itemReq.getVariantId() +
+                        " (demande : " + itemReq.getQuantity() + ", stock : " + variant.stock() + ")"
+                );
             }
 
             OrderItem item = new OrderItem(
@@ -152,6 +162,7 @@ public class OrderService {
                 variant.designation(),
                 variant.unitPriceExclTax(),
                 variant.vatRate(),
+                variant.purchasePriceExclTax(),
                 itemReq.getQuantity()
             );
             order.addItem(item);
