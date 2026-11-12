@@ -352,6 +352,41 @@ Les tests rejouent aussi les migrations et le jeu de démonstration sur un vrai
 de colonnes que Hibernate refuse sur PostgreSQL. Sans Docker, ce test est
 ignoré en local, mais il échoue en CI (`CI=true`).
 
+### API interne des variantes
+
+`C10` (#9) : ce que Panier, Commande et le MCP lisent d'une variante. **La
+gateway ne route pas `/api/internal/**`** : seuls les services se l'appellent,
+dans le réseau Docker Compose ou le cluster. C'est pour cela que le prix
+d'achat peut y figurer, et jamais dans l'API publique.
+
+| Chemin | Réponse |
+|---|---|
+| `GET /api/internal/catalog/variants/{id}` | une variante, ou 404 |
+| `GET /api/internal/catalog/variants?ids=1,2,3` | plusieurs variantes en un appel (100 au plus), dans l'ordre demandé ; un id inconnu est ignoré, une liste vide ou trop longue répond 400 |
+
+```json
+{
+  "id": 4, "productId": 2, "productSlug": "logitech-g915-tkl", "sku": "LOGI-G915TKL-AZ-NOI",
+  "designation": "Logitech G915 TKL - Noir, AZERTY",
+  "unitPriceExclTax": 166.76, "salePriceExclTax": 191.66, "discountPriceExclTax": 166.66, "ecoTax": 0.10,
+  "vatRate": 20.00, "purchasePriceExclTax": 130.00, "weightKg": 0.810, "stock": 8,
+  "status": "PUBLIE", "available": true, "imageUrl": null
+}
+```
+
+- **`id`, `designation`, `unitPriceExclTax` et `vatRate` sont lus par
+  `order-service` sous ces noms exacts**, et figés dans la ligne de commande :
+  ne pas les renommer.
+- `unitPriceExclTax` est ce que le client paie avant TVA : le prix remisé s'il
+  y en a un, sinon le prix de vente, **plus l'écotaxe**, qui fait partie du
+  prix. Le détail reste dans les autres champs.
+- `available` est vrai seulement si le produit est publié et la variante en
+  stock. Les brouillons et les produits archivés restent lisibles, avec leur
+  statut, pour qu'un ancien panier ou une ancienne commande s'affiche encore.
+  C'est au service appelant de refuser une variante non disponible.
+- `purchasePriceExclTax` sert à figer le prix d'achat dans la commande, pour les
+  marges.
+
 ## Collaborateurs (Keycloak)
 
 `user-service` (`U04` #91) gère les comptes du back-office **dans Keycloak et
