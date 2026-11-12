@@ -1,5 +1,5 @@
 server:
-  port: 8081
+  port: 8082
 
 spring:
   application:
@@ -24,7 +24,23 @@ spring:
     oauth2:
       resourceserver:
         jwt:
-          issuer-uri: ${KEYCLOAK_ISSUER_URI:http://${KEYCLOAK_HOST:localhost}:8080/realms/ecommerce-realm}
+          # Comme la gateway : l'issuer est l'URL frontale de Keycloak, celle
+          # que contient le jeton ; les cles se recuperent sur l'URL joignable
+          # depuis le reseau du service.
+          issuer-uri: ${KEYCLOAK_ISSUER_URI:http://localhost:8180/realms/ecommerce}
+          jwk-set-uri: ${KEYCLOAK_JWK_SET_URI:http://localhost:8180/realms/ecommerce/protocol/openid-connect/certs}
+
+keycloak:
+  admin:
+    # URL de Keycloak joignable depuis le service (dans Docker : keycloak:8080),
+    # sans /realms. Elle peut differer de l'issuer que voient les navigateurs.
+    server-url: ${KEYCLOAK_ADMIN_SERVER_URL:http://localhost:8180}
+    realm: ${KEYCLOAK_REALM:ecommerce}
+    # Client confidentiel a compte de service du realm (voir le README,
+    # « Collaborateurs »). Le defaut « set-me » est celui du realm importe en
+    # local ; deploye, le secret vient toujours d'un Secret, jamais d'un fichier.
+    client-id: ${KEYCLOAK_ADMIN_CLIENT_ID:user-service}
+    client-secret: ${KEYCLOAK_ADMIN_CLIENT_SECRET:set-me}
 
 ---
 spring:

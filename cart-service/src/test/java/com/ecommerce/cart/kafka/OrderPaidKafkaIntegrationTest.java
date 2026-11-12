@@ -13,7 +13,7 @@ import org.springframework.kafka.support.KafkaHeaders;
 import com.ecommerce.cart.entity.Cart;
 import com.ecommerce.cart.entity.CartItem;
 import com.ecommerce.cart.repository.CartRepository;
-import com.ecommerce.cart.service.ProcessedOrderEventRepository;
+import com.ecommerce.cart.repository.ProcessedOrderEventRepository;
 import com.ecommerce.common.event.OrderPaidEvent;
 import com.ecommerce.common.kafka.KafkaTopics;
 import com.ecommerce.test.kafka.KafkaIntegrationTest;

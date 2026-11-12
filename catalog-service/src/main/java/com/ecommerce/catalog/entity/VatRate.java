@@ -25,4 +25,11 @@ public class VatRate extends AuditedEntity {
 
     @Column(name = "par_defaut", nullable = false)
     private boolean defaultRate;
+
+    /**
+     * An inactive rate is no longer offered for new products, but stays
+     * valid for the products that already use it.
+     */
+    @Column(name = "actif", nullable = false)
+    private boolean active = true;
 }
