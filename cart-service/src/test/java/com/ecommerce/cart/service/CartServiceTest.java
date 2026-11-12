@@ -41,6 +41,7 @@ class CartServiceTest {
                 100L,
                 "Produit enrichi",
                 new BigDecimal("29.90"),
+                new BigDecimal("20.00"),
                 true,
                 "https://cdn.example.com/produit.png"
         )));
@@ -87,6 +88,7 @@ class CartServiceTest {
                 100L,
                 "Produit enrichi",
                 new BigDecimal("29.90"),
+                new BigDecimal("20.00"),
                 true,
                 "https://cdn.example.com/produit.png"
         )));

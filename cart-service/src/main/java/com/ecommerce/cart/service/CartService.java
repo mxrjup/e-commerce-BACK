@@ -87,7 +87,7 @@ public class CartService {
                 .variantId(item.getVariantId())
                 .quantity(item.getQuantity())
                 .productName(variant.designation())
-                .currentPrice(variant.currentPrice())
+                .currentPrice(variant.unitPriceExclTax())
                 .available(variant.available())
                 .imageUrl(variant.imageUrl())
                 .status(variant.available() ? "AVAILABLE" : "UNAVAILABLE")
