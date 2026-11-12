@@ -8,6 +8,7 @@ import static org.mockito.Mockito.*;
 
 import com.ecommerce.common.event.OrderPaidEvent;
 import com.ecommerce.common.event.OrderStatusChangedEvent;
+import com.ecommerce.common.exception.ConflictException;
 import com.ecommerce.common.kafka.KafkaTopics;
 import com.ecommerce.order.client.CatalogClient;
 import com.ecommerce.order.client.CatalogVariantResponse;
