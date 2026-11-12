@@ -50,7 +50,8 @@ class CartServiceTest {
 
         assertEquals(1, response.getItems().size());
         assertEquals("Produit enrichi", response.getItems().get(0).getProductName());
-        assertEquals(new BigDecimal("29.90"), response.getItems().get(0).getCurrentPrice());
+        assertEquals(new BigDecimal("29.90"), response.getItems().get(0).getUnitPriceExclTax());
+        assertEquals(new BigDecimal("20.00"), response.getItems().get(0).getVatRate());
         assertTrue(response.getItems().get(0).getAvailable());
         assertEquals("https://cdn.example.com/produit.png", response.getItems().get(0).getImageUrl());
     }
@@ -100,7 +101,8 @@ class CartServiceTest {
         assertEquals(100L, response.getItems().get(0).getVariantId());
         assertEquals(2, response.getItems().get(0).getQuantity());
         assertEquals("Produit enrichi", response.getItems().get(0).getProductName());
-        assertEquals(new BigDecimal("29.90"), response.getItems().get(0).getCurrentPrice());
+        assertEquals(new BigDecimal("29.90"), response.getItems().get(0).getUnitPriceExclTax());
+        assertEquals(new BigDecimal("20.00"), response.getItems().get(0).getVatRate());
         assertTrue(response.getItems().get(0).getAvailable());
         assertEquals(2, response.getTotalItems());
     }

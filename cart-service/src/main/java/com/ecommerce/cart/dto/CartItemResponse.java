@@ -18,7 +18,8 @@ public class CartItemResponse {
     private Long variantId;
     private int quantity;
     private String productName;
-    private BigDecimal currentPrice;
+    private BigDecimal unitPriceExclTax;
+    private BigDecimal vatRate;
     private Boolean available;
     private String imageUrl;
     private String status;
@@ -29,7 +30,8 @@ public class CartItemResponse {
                 .variantId(item.getVariantId())
                 .quantity(item.getQuantity())
                 .productName(null)
-                .currentPrice(null)
+                .unitPriceExclTax(null)
+                .vatRate(null)
                 .available(false)
                 .imageUrl(null)
                 .status("UNAVAILABLE")
