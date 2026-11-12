@@ -30,6 +30,14 @@ spring:
           uri: ${ORDER_SERVICE_URI:http://localhost:8084}
           predicates:
             - Path=/api/admin/orders/**
+        - id: user-service-users
+          uri: ${USER_SERVICE_URL:http://localhost:8082}
+          predicates:
+            - Path=/api/v1/users/**
+        - id: user-service-addresses
+          uri: ${USER_SERVICE_URL:http://localhost:8082}
+          predicates:
+            - Path=/api/v1/addresses/**
       httpclient:
         connect-timeout: 2000
         response-timeout: 10s
