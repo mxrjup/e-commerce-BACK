@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.security.oauth2.jwt.BadJwtException;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.ReactiveJwtDecoder;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -62,6 +63,7 @@ class GatewaySecurityTest {
         registry.add("ORDER_SERVICE_URI", () -> uri);
         registry.add("CATALOG_SERVICE_URI", () -> uri);
         registry.add("USER_SERVICE_URI", () -> uri);
+        registry.add("MCP_SERVICE_URI", () -> uri);
         // Le decodeur de jetons est mocke : ces URL ne sont jamais appelees,
         // elles evitent seulement un appel reseau au demarrage.
         registry.add("spring.security.oauth2.resourceserver.jwt.issuer-uri",
@@ -186,6 +188,56 @@ class GatewaySecurityTest {
         RecordedRequest forwarded = BACKEND.takeRequest();
         assertThat(forwarded.getPath()).isEqualTo("/api/admin/users/collaborators");
         assertThat(forwarded.getHeader(IdentityHeadersFilter.SUBJECT_HEADER)).isEqualTo("an-admin");
+    }
+
+    @Test
+    void shouldPassAnMcpTokenThroughToTheMcpServiceUntouched() throws InterruptedException {
+        BACKEND.enqueue(ok());
+
+        webTestClient.post().uri("/mcp/message?sessionId=abc")
+                .header("Authorization", "Bearer mcp_an-opaque-token-not-a-jwt")
+                .header(IdentityHeadersFilter.SUBJECT_HEADER, "someone-else")
+                .exchange()
+                .expectStatus().isOk();
+
+        RecordedRequest forwarded = BACKEND.takeRequest();
+        assertThat(forwarded.getPath()).isEqualTo("/mcp/message?sessionId=abc");
+        assertThat(forwarded.getHeader("Authorization")).isEqualTo("Bearer mcp_an-opaque-token-not-a-jwt");
+        assertThat(forwarded.getHeader(IdentityHeadersFilter.SUBJECT_HEADER)).isNull();
+    }
+
+    @Test
+    void shouldRouteTheSseEndpointToTheMcpService() throws InterruptedException {
+        BACKEND.enqueue(ok());
+
+        webTestClient.get().uri("/sse").exchange().expectStatus().isOk();
+
+        assertThat(BACKEND.takeRequest().getPath()).isEqualTo("/sse");
+    }
+
+    @Test
+    void shouldReserveMcpTokenManagementToAdministrators() throws InterruptedException {
+        // Un jeton MCP n'est pas un JWT : le vrai decodeur le refuse ainsi.
+        given(jwtDecoder.decode(anyString())).willReturn(Mono.error(new BadJwtException("Malformed token")));
+        webTestClient.get().uri("/api/admin/mcp/tokens")
+                .header("Authorization", "Bearer mcp_an-mcp-token-is-no-way-in-here")
+                .exchange()
+                .expectStatus().isUnauthorized();
+
+        givenTokenFor("a-collaborator", "client", "collaborator");
+        webTestClient.post().uri("/api/admin/mcp/tokens")
+                .header("Authorization", "Bearer any-value-the-decoder-is-mocked")
+                .exchange()
+                .expectStatus().isForbidden();
+
+        givenTokenFor("an-admin", "client", "collaborator", "admin");
+        BACKEND.enqueue(ok());
+        webTestClient.get().uri("/api/admin/mcp/tokens")
+                .header("Authorization", "Bearer any-value-the-decoder-is-mocked")
+                .exchange()
+                .expectStatus().isOk();
+
+        assertThat(BACKEND.takeRequest().getPath()).isEqualTo("/api/admin/mcp/tokens");
     }
 
     @Test
