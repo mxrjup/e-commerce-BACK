@@ -13,6 +13,7 @@ import jakarta.persistence.OrderBy;
 import jakarta.persistence.Table;
 import lombok.Getter;
 import lombok.Setter;
+import org.hibernate.annotations.BatchSize;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
@@ -72,8 +73,10 @@ public class Variant extends AuditedEntity {
             inverseJoinColumns = @JoinColumn(name = "valeur_id"))
     private Set<AttributeValue> values = new LinkedHashSet<>();
 
+    /** Loaded for up to 100 variants at once when a list of variants needs them. */
     @OneToMany(mappedBy = "variant", cascade = CascadeType.ALL, orphanRemoval = true)
     @OrderBy("position, id")
+    @BatchSize(size = 100)
     private List<VariantImage> images = new ArrayList<>();
 
     /** The price the customer pays before VAT: the discount when there is one. */
