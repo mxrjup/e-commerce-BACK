@@ -3,10 +3,12 @@ package com.ecommerce.cart.client;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
+import java.util.List;
 import java.util.Optional;
 
 @Component
@@ -38,6 +40,26 @@ public class HttpCatalogClient implements CatalogClient {
         } catch (Exception e) {
             log.warn("Unable to retrieve catalog variant {} from catalog service: {}", variantId, e.getMessage());
             return Optional.empty();
+        }
+    }
+
+    @Override
+    public List<CatalogVariantResponse> getVariants(List<Long> variantIds) {
+        if (variantIds == null || variantIds.isEmpty()) {
+            return List.of();
+        }
+
+        try {
+            return restClient.get()
+                    .uri(uriBuilder -> uriBuilder
+                            .path("/api/internal/catalog/variants")
+                            .queryParam("ids", variantIds)
+                            .build())
+                    .retrieve()
+                    .body(new ParameterizedTypeReference<List<CatalogVariantResponse>>() {});
+        } catch (Exception e) {
+            log.warn("Unable to retrieve catalog variants {} from catalog service: {}", variantIds, e.getMessage());
+            return List.of();
         }
     }
 }

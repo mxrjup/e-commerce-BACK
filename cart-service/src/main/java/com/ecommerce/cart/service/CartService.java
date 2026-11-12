@@ -15,7 +15,9 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -55,8 +57,16 @@ public class CartService {
     }
 
     private CartResponse buildEnrichedCartResponse(Cart cart) {
+        List<Long> variantIds = cart.getItems().stream()
+                .map(CartItem::getVariantId)
+                .toList();
+
+        Map<Long, CatalogVariantResponse> variantsById = new HashMap<>();
+        catalogClient.getVariants(variantIds)
+                .forEach(variant -> variantsById.put(variant.id(), variant));
+
         List<CartItemResponse> items = cart.getItems().stream()
-                .map(this::enrichCartItem)
+                .map(item -> enrichCartItem(item, variantsById))
                 .toList();
 
         CartResponse response = CartResponse.fromEntity(cart);
@@ -65,10 +75,10 @@ public class CartService {
         return response;
     }
 
-    private CartItemResponse enrichCartItem(CartItem item) {
-        Optional<CatalogVariantResponse> variantOpt = catalogClient.getVariant(item.getVariantId());
+    private CartItemResponse enrichCartItem(CartItem item, Map<Long, CatalogVariantResponse> variantsById) {
+        CatalogVariantResponse variant = variantsById.get(item.getVariantId());
 
-        if (variantOpt.isEmpty()) {
+        if (variant == null) {
             return CartItemResponse.builder()
                     .id(item.getId())
                     .variantId(item.getVariantId())
@@ -82,7 +92,6 @@ public class CartService {
                     .build();
         }
 
-        CatalogVariantResponse variant = variantOpt.get();
         return CartItemResponse.builder()
                 .id(item.getId())
                 .variantId(item.getVariantId())

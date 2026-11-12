@@ -37,7 +37,7 @@ class CartServiceTest {
     @DisplayName("Cart items are enriched with current catalog data on read")
     void testGetCart_EnrichesItemsWithCatalogData() {
         cartService.addItem(null, "my-session-token", new AddCartItemRequest(100L, 2));
-        when(catalogClient.getVariant(100L)).thenReturn(Optional.of(new CatalogVariantResponse(
+        when(catalogClient.getVariants(java.util.List.of(100L))).thenReturn(java.util.List.of(new CatalogVariantResponse(
                 100L,
                 "Produit enrichi",
                 new BigDecimal("29.90"),
@@ -70,6 +70,38 @@ class CartServiceTest {
     }
 
     @Test
+    @DisplayName("Cart read batches catalog lookups for all cart lines in one call")
+    void testGetCart_UsesBatchCatalogLookup() {
+        cartService.addItem(null, "my-session-token", new AddCartItemRequest(100L, 2));
+        cartService.addItem(null, "my-session-token", new AddCartItemRequest(200L, 1));
+
+        when(catalogClient.getVariants(java.util.List.of(100L, 200L))).thenReturn(java.util.List.of(
+                new CatalogVariantResponse(
+                        100L,
+                        "Produit enrichi",
+                        new BigDecimal("29.90"),
+                        new BigDecimal("20.00"),
+                        true,
+                        "https://cdn.example.com/produit.png"
+                ),
+                new CatalogVariantResponse(
+                        200L,
+                        "Autre produit",
+                        new BigDecimal("49.90"),
+                        new BigDecimal("20.00"),
+                        false,
+                        "https://cdn.example.com/autre.png"
+                )
+        ));
+
+        CartResponse response = cartService.getCart(null, "my-session-token");
+
+        assertEquals(2, response.getItems().size());
+        assertEquals("Produit enrichi", response.getItems().get(0).getProductName());
+        assertEquals("UNAVAILABLE", response.getItems().get(1).getStatus());
+    }
+
+    @Test
     @DisplayName("Guest without token: creates and persists a new guest cart in database")
     void testGetOrCreateCart_GuestNew() {
         Cart cart = cartService.getOrCreateCart(null, null);
@@ -85,7 +117,7 @@ class CartServiceTest {
     @Test
     @DisplayName("Add a new item returns a catalog-enriched response")
     void testAddItem_New() {
-        when(catalogClient.getVariant(100L)).thenReturn(Optional.of(new CatalogVariantResponse(
+        when(catalogClient.getVariants(java.util.List.of(100L))).thenReturn(java.util.List.of(new CatalogVariantResponse(
                 100L,
                 "Produit enrichi",
                 new BigDecimal("29.90"),
