@@ -13,6 +13,7 @@ import java.util.concurrent.TimeUnit;
 import com.ecommerce.common.event.OrderPaidEvent;
 import com.ecommerce.common.event.OrderStatusChangedEvent;
 import com.ecommerce.common.kafka.KafkaTopics;
+import com.ecommerce.common.exception.ConflictException;
 import com.ecommerce.common.exception.ResourceNotFoundException;
 import com.ecommerce.order.client.CatalogClient;
 import com.ecommerce.order.client.CatalogVariantResponse;
@@ -20,6 +21,8 @@ import com.ecommerce.order.config.StripeProperties;
 import com.ecommerce.order.dto.CheckoutItemRequest;
 import com.ecommerce.order.dto.CheckoutRequest;
 import com.ecommerce.order.dto.CheckoutResponse;
+import com.ecommerce.order.dto.OrderDetailResponse;
+import com.ecommerce.order.dto.OrderHistoryResponse;
 import com.ecommerce.order.dto.OrderResponse;
 import com.ecommerce.order.entity.Order;
 import com.ecommerce.order.entity.OrderItem;
@@ -32,6 +35,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.stripe.StripeClient;
 import com.stripe.exception.SignatureVerificationException;
 import com.stripe.model.Event;
+import com.stripe.model.Invoice;
 import com.stripe.model.checkout.Session;
 import com.stripe.net.Webhook;
 import com.stripe.param.checkout.SessionCreateParams;
@@ -111,6 +115,23 @@ public class OrderService {
         return OrderResponse.fromEntity(order);
     }
 
+    public List<OrderHistoryResponse> getOrderHistory(Long userId) {
+        return orderRepository.findByUserIdOrderByCreatedAtDesc(userId).stream()
+            .map(OrderHistoryResponse::fromEntity)
+            .toList();
+    }
+
+    public OrderDetailResponse getOrderDetail(Long userId, Long orderId) {
+        Order order = orderRepository.findById(orderId)
+            .orElseThrow(() -> new ResourceNotFoundException("Commande introuvable : " + orderId));
+
+        if (!order.getUserId().equals(userId)) {
+            throw new ResourceNotFoundException("Commande introuvable : " + orderId);
+        }
+
+        return OrderDetailResponse.fromEntity(order);
+    }
+
     @Transactional
     public CheckoutResponse checkout(Long userId, String sessionToken, CheckoutRequest request) {
         Order order = new Order();
@@ -127,7 +148,16 @@ public class OrderService {
         for (CheckoutItemRequest itemReq : request.getItems()) {
             CatalogVariantResponse variant = catalogClient.getVariant(itemReq.getVariantId());
             if (variant == null) {
-                throw new IllegalArgumentException("Variante introuvable dans le catalogue : " + itemReq.getVariantId());
+                throw new ConflictException("Variante introuvable dans le catalogue : " + itemReq.getVariantId());
+            }
+            if (!variant.available()) {
+                throw new ConflictException("Variante indisponible dans le catalogue : " + itemReq.getVariantId());
+            }
+            if (itemReq.getQuantity() > variant.stock()) {
+                throw new ConflictException(
+                    "Quantité demandée supérieure au stock disponible pour la variante " + itemReq.getVariantId() +
+                        " (demande : " + itemReq.getQuantity() + ", stock : " + variant.stock() + ")"
+                );
             }
 
             OrderItem item = new OrderItem(
@@ -136,6 +166,7 @@ public class OrderService {
                 variant.designation(),
                 variant.unitPriceExclTax(),
                 variant.vatRate(),
+                variant.purchasePriceExclTax(),
                 itemReq.getQuantity()
             );
             order.addItem(item);
@@ -309,10 +340,37 @@ public class OrderService {
             throw new IllegalStateException("Impossible de publier l'évènement OrderPaid pour la commande " + order.getOrderNumber(), e);
         }
 
+        String invoiceUrl = resolveInvoiceUrl(session);
+        if (invoiceUrl != null) {
+            order.setInvoiceUrl(invoiceUrl);
+        }
+
         order.setStatus(OrderStatus.IN_PREPARATION);
         orderRepository.save(order);
 
         log.info("Evènements OrderPaid publié sur Kafka pour la commande {} ", order.getOrderNumber());
+    }
+
+    private String resolveInvoiceUrl(Session session) {
+        if (session == null) {
+            return null;
+        }
+
+        String invoiceId = session.getInvoice();
+        if (invoiceId == null || invoiceId.isBlank()) {
+            if (session.getInvoiceObject() != null && session.getInvoiceObject().getHostedInvoiceUrl() != null) {
+                return session.getInvoiceObject().getHostedInvoiceUrl();
+            }
+            return null;
+        }
+
+        try {
+            Invoice invoice = Invoice.retrieve(invoiceId);
+            return invoice != null ? invoice.getHostedInvoiceUrl() : null;
+        } catch (Exception e) {
+            log.warn("Impossible de récupérer la facture Stripe {} pour la commande : {}", invoiceId, e.getMessage());
+            return null;
+        }
     }
 
     private Session getSessionFromRawPayload(String payload) {
@@ -333,6 +391,9 @@ public class OrderService {
             session.setId(sessionNode.has("id") && !sessionNode.get("id").isNull() ? sessionNode.get("id").asText() : null);
             session.setPaymentStatus(sessionNode.has("payment_status") && !sessionNode.get("payment_status").isNull()
                 ? sessionNode.get("payment_status").asText()
+                : null);
+            session.setInvoice(sessionNode.has("invoice") && !sessionNode.get("invoice").isNull()
+                ? sessionNode.get("invoice").asText()
                 : null);
             return session;
         } catch (Exception e) {

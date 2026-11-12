@@ -3,4 +3,7 @@
 -- apres avoir ajoute une ligne, relancer `docker compose down -v && docker compose up -d`.
 CREATE DATABASE keycloak;
 CREATE DATABASE ecommerce_cart;
+CREATE DATABASE ecommerce_catalog;
 CREATE DATABASE ecommerce_order;
+CREATE DATABASE ecommerce_mcp;
+CREATE DATABASE ecommerce_users;

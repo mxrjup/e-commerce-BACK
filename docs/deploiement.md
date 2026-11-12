@@ -180,28 +180,40 @@ sur le cluster, jamais versionné.
 | `KEYCLOAK_ISSUER_URI` | `http://localhost:8180/realms/ecommerce` | `${KEYCLOAK_FRONTEND_URL}/realms/ecommerce` | `$(PUBLIC_URL)/auth/realms/ecommerce` | `iss` attendu dans les jetons : l'URL **publique** |
 | `KEYCLOAK_JWK_SET_URI` | `http://localhost:8180/…/certs` | `http://keycloak:8080/…/certs` | `http://keycloak:8080/auth/…/certs` | clés de signature : l'URL **interne** |
 | `CART_SERVICE_URI` | `http://localhost:8083` | `http://cart-service:8083` | idem | cible de `/api/cart/**` |
+| `CATALOG_SERVICE_URI` | `http://localhost:8081` | `http://catalog-service:8081` | à ajouter dans INFRA | cible de `/api/catalog/**`, `/api/admin/catalog/**` |
 | `ORDER_SERVICE_URI` | `http://localhost:8084` | `http://order-service:8084` | idem | cible de `/api/orders/**`, `/api/admin/orders/**` |
+| `USER_SERVICE_URI` | `http://localhost:8082` | `http://user-service:8082` | à ajouter dans INFRA | cible de `/api/admin/users/**` |
+| `MCP_SERVICE_URI` | `http://localhost:8087` | `http://mcp-service:8087` | à ajouter dans INFRA | cible de `/mcp/**`, `/sse`, `/api/admin/mcp/**` |
 | `CORS_ALLOWED_ORIGINS` | `http://localhost:5173,http://localhost:8081` | idem, via `.env` | `$(PUBLIC_URL)` | origines navigateur autorisées |
 
 L'issuer et l'URL des clés **diffèrent volontairement** : voir README,
 « L'issuer, le piège à éviter ».
 
-### `cart-service` et `order-service`
+### `cart-service`, `catalog-service`, `order-service` et `mcp-service`
 
 | Variable | IDE | Compose | Cluster | Rôle |
 |---|---|---|---|---|
 | `DB_HOST` | `localhost` | `postgres` | `postgres` | hôte PostgreSQL |
 | `DB_PORT` | `5432` | `5432` | `5432` | port PostgreSQL |
-| `DB_NAME` | `ecommerce_cart` / `ecommerce_order` | via `CART_DB_NAME` / `ORDER_DB_NAME` | idem | base du service |
+| `DB_NAME` | `ecommerce_cart` / `ecommerce_catalog` / `ecommerce_order` / `ecommerce_mcp` | via `CART_DB_NAME` / `CATALOG_DB_NAME` / `ORDER_DB_NAME` / `MCP_DB_NAME` | idem | base du service |
 | `SPRING_DATASOURCE_URL` | construite avec les trois précédentes | — | — | URL JDBC complète ; si fournie, remplace les trois |
-| `SPRING_DATASOURCE_USERNAME` | `postgres` | `${POSTGRES_USER}` | `cart_service` / `order_service` | rôle PostgreSQL du service |
+| `SPRING_DATASOURCE_USERNAME` | `postgres` | `${POSTGRES_USER}` | `cart_service` / `catalog_service` / `order_service` / `mcp_service` | rôle PostgreSQL du service |
 | `SPRING_DATASOURCE_PASSWORD` 🔒 | `postgres` | `${POSTGRES_PASSWORD}` | Secret `postgres-credentials` | mot de passe de ce rôle |
+
+Les valeurs *Cluster* de `catalog-service` (`ecommerce_catalog`, rôle
+`catalog_service`) et de `mcp-service` (`ecommerce_mcp`, rôle `mcp_service`)
+s'appliqueront avec leurs manifests dans INFRA, pas encore écrits : voir
+« Prérequis », point 2.
+
+`mcp-service` lit aussi `MCP_SECURITY_PROTECTED_PATHS` (défaut
+`/sse,/mcp,/mcp/*`) : les chemins du transport MCP qui exigent un jeton MCP.
+À ne changer qu'avec les chemins du serveur MCP (`M01`).
 
 ### `order-service`, en plus
 
 | Variable | IDE | Compose | Cluster | Rôle |
 |---|---|---|---|---|
-| `CATALOG_SERVICE_URL` | `http://localhost:8081` | — | `http://catalog-service:8081` | API interne du catalogue (prix, stock) |
+| `CATALOG_SERVICE_URL` | `http://localhost:8081` | `http://catalog-service:8081` | `http://catalog-service:8081` | API interne du catalogue (prix, stock) |
 | `STRIPE_SECRET_KEY` 🔒 | `sk_test_placeholder` | — | Secret `stripe` | clé API Stripe |
 | `STRIPE_SUCCESS_URL` | `http://localhost:3000/checkout/success?…` | — | `$(PUBLIC_URL)/checkout/success?…` | retour après paiement |
 | `STRIPE_CANCEL_URL` | `http://localhost:3000/checkout/cancel` | — | `$(PUBLIC_URL)/checkout/cancel` | retour après abandon |
@@ -215,6 +227,28 @@ L'issuer et l'URL des clés **diffèrent volontairement** : voir README,
   traitement du webhook Stripe (`O03` #27), pas encore mergé.
 - En production, la clé est une clé **live** (`sk_live_…`) : c'est le seul
   endroit où elle existe, dans le Secret `stripe` du cluster.
+
+### `user-service`
+
+Pas de base de données pour l'instant : les collaborateurs vivent dans
+Keycloak (`U04` #91). Les variables `DB_*` arriveront avec `U01` (#58).
+
+| Variable | IDE | Compose | Cluster | Rôle |
+|---|---|---|---|---|
+| `KEYCLOAK_ADMIN_SERVER_URL` | `http://localhost:8180` | `http://keycloak:8080` | `http://keycloak:8080/auth` | Keycloak joignable **depuis le service**, sans `/realms` |
+| `KEYCLOAK_REALM` | `ecommerce` | — | — | realm dont les comptes sont gérés |
+| `KEYCLOAK_ADMIN_CLIENT_ID` | `user-service` | — | — | client confidentiel à compte de service |
+| `KEYCLOAK_ADMIN_CLIENT_SECRET` 🔒 | `set-me` | `${USER_SERVICE_CLIENT_SECRET}` | Secret, à créer dans INFRA | secret de ce client |
+
+**Le secret est partagé avec Keycloak.** Le realm importé lit le sien dans
+`USER_SERVICE_CLIENT_SECRET` (défaut `set-me`) : sur le cluster, le Deployment
+de Keycloak et celui de `user-service` doivent lire **la même clé du même
+Secret**, générée une fois (`openssl rand -hex 32`). Un défaut `set-me` laissé
+sur le cluster donnerait la gestion des comptes à quiconque le connaît.
+
+Comme pour tout changement de realm, Keycloak n'importe ce client que sur un
+realm qui n'existe pas encore : sur un Keycloak déjà en place, le créer depuis
+la console (voir README, « Collaborateurs »).
 
 ### La stack Docker Compose
 

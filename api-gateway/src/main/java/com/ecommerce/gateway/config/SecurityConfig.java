@@ -3,6 +3,8 @@ package com.ecommerce.gateway.config;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
 import org.springframework.core.convert.converter.Converter;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AbstractAuthenticationToken;
@@ -12,6 +14,7 @@ import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
 import org.springframework.security.oauth2.server.resource.authentication.ReactiveJwtAuthenticationConverterAdapter;
 import org.springframework.security.web.server.SecurityWebFilterChain;
+import org.springframework.security.web.server.util.matcher.ServerWebExchangeMatchers;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.reactive.CorsConfigurationSource;
 import org.springframework.web.cors.reactive.UrlBasedCorsConfigurationSource;
@@ -37,6 +40,26 @@ public class SecurityConfig {
         this.allowedOrigins = allowedOrigins;
     }
 
+    /**
+     * The MCP transport carries its own tokens ({@code Bearer mcp_...}), which
+     * are not Keycloak JWTs: the resource server below would reject them as
+     * malformed before the request reached anyone. This chain, matched first,
+     * lets that traffic through untouched, and mcp-service checks the token
+     * (M03). Its paths are nothing else: the MCP back-office API lives under
+     * {@code /api/admin/mcp/**}, guarded by the main chain.
+     */
+    @Bean
+    @Order(Ordered.HIGHEST_PRECEDENCE)
+    public SecurityWebFilterChain mcpTransportFilterChain(ServerHttpSecurity http) {
+        return http
+                .securityMatcher(ServerWebExchangeMatchers.pathMatchers("/mcp", "/mcp/**", "/sse"))
+                .csrf(ServerHttpSecurity.CsrfSpec::disable)
+                .formLogin(ServerHttpSecurity.FormLoginSpec::disable)
+                .httpBasic(ServerHttpSecurity.HttpBasicSpec::disable)
+                .authorizeExchange(exchanges -> exchanges.anyExchange().permitAll())
+                .build();
+    }
+
     @Bean
     public SecurityWebFilterChain securityWebFilterChain(ServerHttpSecurity http, ErrorResponseWriter errors) {
         return http
@@ -51,9 +74,20 @@ public class SecurityConfig {
                         // Le panier accepte les invites (P01) : un jeton est
                         // facultatif, et l'identite est injectee quand il y en a un.
                         .pathMatchers("/api/cart/**").permitAll()
+                        // Parcourir le catalogue ne demande pas de compte. En
+                        // lecture seulement : rien d'autre n'y est public.
+                        .pathMatchers(HttpMethod.GET, "/api/catalog/**").permitAll()
                         // Stripe doit pouvoir appeler le webhook sans bearer token,
                         // mais uniquement pour cette route et ce verbe.
                         .pathMatchers(HttpMethod.POST, "/api/orders/webhook").permitAll()
+                        // Les comptes du back-office (U04) : creer un collaborateur
+                        // ou changer un role est reserve aux administrateurs. Avant
+                        // la regle generale, la premiere qui correspond l'emporte.
+                        .pathMatchers("/api/admin/users/collaborators/**").hasRole("admin")
+                        // Les jetons MCP (M03) ouvrent les donnees de la boutique a un
+                        // client exterieur : reserve aux administrateurs, comme le
+                        // panneau MCP du back-office (M04).
+                        .pathMatchers("/api/admin/mcp/**").hasRole("admin")
                         // « admin » inclut « collaborator » cote Keycloak ; les deux
                         // sont listes pour ne pas dependre de ce composite.
                         .pathMatchers("/api/admin/**").hasAnyRole("collaborator", "admin")

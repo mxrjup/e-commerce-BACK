@@ -73,8 +73,8 @@ changer une, `cp .env.example .env` puis ajuster — le `.env` n'est jamais
 commité.
 
 **Une base de données par service.** `docker/postgres/init/01-databases.sql`
-les crée au premier démarrage (`keycloak` et `ecommerce_cart` aujourd'hui). Ce
-script ne s'exécute que sur un volume vide : après y avoir ajouté une base,
+les crée au premier démarrage (`keycloak`, `ecommerce_cart`, `ecommerce_catalog`,
+`ecommerce_order` et `ecommerce_mcp` aujourd'hui). Ce script ne s'exécute que sur un volume vide : après y avoir ajouté une base,
 `docker compose down -v && docker compose up -d`.
 
 **Les services applicatifs** sont déclarés derrière le profil `services` :
@@ -117,9 +117,10 @@ transite en dehors du navigateur. Les deux ajoutent l'audience
 `ecommerce-api` dans le jeton d'accès, que la gateway (`T04` #84) pourra
 vérifier.
 
-Le client confidentiel à compte de service, pour l'Admin API de Keycloak,
-viendra avec `U04` (#91) : il porte un secret, il n'a donc rien à faire dans un
-fichier versionné.
+Un troisième client, **`user-service`**, est confidentiel et sans aucun flux
+utilisateur : seul son compte de service sert, pour appeler l'Admin API de
+Keycloak (`U04` #91). Son secret n'est pas dans le fichier, qui ne porte que
+l'expression `${USER_SERVICE_CLIENT_SECRET:set-me}` — voir « Collaborateurs ».
 
 ### Rôles
 
@@ -230,17 +231,289 @@ où personne ne lira jamais rien.
 | Module | Domaine | Issues | Port | État |
 |---|---|---|---|---|
 | `common-lib` | Librairie partagée (contrat d'erreur HTTP, événements Kafka) | `T01`, `K02` | — | en place |
+| `common-test` | Outillage de test partagé (tests d'intégration Kafka) | `K04` | — | en place |
 | `cart-service` | Panier | `P*` | 8083 | en place |
-| `catalog-service` | Catalogue, stock, avis | `C*` | 8081 | à créer |
-| `user-service` | Utilisateurs, adresses, collaborateurs | `U*` | 8082 | à créer |
+| `catalog-service` | Catalogue, stock, avis | `C*` | 8081 | référentiels (`C05`) et modèle produits (`C01`) en place, API produits à venir |
+| `user-service` | Utilisateurs, adresses, collaborateurs | `U*` | 8082 | comptes clients (`U01`) et collaborateurs (`U04`) en place |
 | `order-service` | Commandes, paiement, livraison | `O*` | 8084 | en place |
 | `notification-service` | Notifications, alertes, emails | `N*` | 8085 | à créer |
 | `support-service` | SAV, tickets | `S*` | 8086 | à créer |
-| `mcp-service` | Serveur MCP | `M*` | 8087 | à créer |
+| `mcp-service` | Serveur MCP | `M*` | 8087 | jetons en place (`M03`), serveur à venir (`M01`) |
 | `api-gateway` | Routage, validation JWT, CORS | `T04` | 8080 | en place |
 
 Les ports sont réservés ici pour éviter les collisions en local et dans le
 Docker Compose.
+
+## Catalogue : les référentiels
+
+`catalog-service` (`C05` #90) porte les référentiels transverses que les
+produits (`C01` #3) référenceront : **marques**, **catégories** (arborescentes),
+**univers** et **taux de TVA**.
+
+| Chemin | Pour | Contenu |
+|---|---|---|
+| `GET /api/catalog/brands`, `/brands/{slug}` | vitrine | marques, par nom |
+| `GET /api/catalog/categories` | vitrine | **l'arbre** des catégories, en une requête |
+| `GET /api/catalog/categories/{slug}` | vitrine | une catégorie et l'id de son parent |
+| `GET /api/catalog/universes`, `/universes/{slug}` | vitrine | univers, par `position` puis nom |
+| `/api/admin/catalog/{brands,categories,universes,vat-rates}` | back-office | `GET` liste, `GET /{id}`, `POST`, `PUT /{id}`, `DELETE /{id}` |
+
+La vitrine adresse une entrée par son **slug**, le back-office par son **id**.
+À la création, sans slug dans la requête, il est dérivé du nom : `Écrans &
+Moniteurs` donne `ecrans-moniteurs`. **Une mise à jour garde le slug existant**
+sauf si la requête en envoie un : renommer ou déplacer une entrée ne casse pas
+son URL publique. Si aucun slug utilisable ne se dérive du nom (`日本語`,
+`+++`, ou plus de 120 caractères), la création répond **400** et demande un
+slug explicite.
+
+Les tables et colonnes sont **en français** (`marque`, `categorie`, `univers`,
+`tva` ; `nom`, `libelle`, `taux`, `par_defaut`, `date_creation`, `date_maj`),
+comme dans les autres services ; le Java reste en anglais.
+
+Règles, toutes en **409** avec un message lisible :
+
+- un nom de marque ou d'univers, et un slug, sont uniques (le nom sans tenir
+  compte de la casse) ; deux catégories de branches différentes peuvent porter
+  le même nom, pas le même slug ;
+- une catégorie ne se déplace pas sous elle-même ni sous l'une de ses
+  sous-catégories, et ne se supprime pas tant qu'elle en a ;
+- **il y a toujours exactement un taux de TVA par défaut** : en marquer un
+  autre retire la marque du précédent ; le taux par défaut ne peut être ni
+  démarqué ni supprimé. Chaque écriture verrouille la table `tva` : deux
+  requêtes simultanées ne laissent pas deux défauts ;
+- une entrée encore référencée par une autre table (un produit) ne se
+  supprime pas : la contrainte de la base répond 409, pas 500.
+
+**Le schéma est géré par Flyway**, une première dans le dépôt :
+`catalog-service/src/main/resources/db/migration`. Hibernate ne fait que
+vérifier (`ddl-auto: validate`) que les entités correspondent aux tables, et les
+tests passent par les mêmes migrations : un écart entre les deux fait échouer
+le build. Une évolution du schéma est donc **une nouvelle migration** (`V2__…`),
+jamais une modification de `V1`, déjà appliquée. Le SQL doit passer sur
+PostgreSQL et sur H2 en mode PostgreSQL (profil `local-h2` et tests).
+
+`V1` insère les quatre taux français (20 % par défaut, 10 %, 5,5 %, 2,1 %) :
+une donnée de référence, pas un jeu de démonstration.
+
+```bash
+./mvnw -pl catalog-service -am install -DskipTests
+./mvnw -pl catalog-service spring-boot:run -Dspring-boot.run.profiles=local-h2
+curl -s localhost:8081/api/admin/catalog/vat-rates
+curl -s -X POST localhost:8081/api/admin/catalog/categories \
+  -H 'Content-Type: application/json' -d '{"name":"Périphériques"}'
+curl -s localhost:8081/api/catalog/categories
+```
+
+> **Port 8081.** C'est aussi celui du serveur de développement Expo. Si les
+> deux tournent sur la même machine, `CATALOG_PORT` (voir `.env.example`)
+> publie le catalogue ailleurs dans le Docker Compose ; en dehors de Docker,
+> `-Dspring-boot.run.arguments=--server.port=8091`.
+
+## Catalogue : produits et variantes
+
+`C01` (#3) ajoute le modèle des produits par la migration `V2`. Le **produit**
+est la fiche générique (« Logitech MX Keys S ») ; la **variante** est l'unité
+réellement vendue (« MX Keys S, AZERTY, blanc »), avec son SKU, ses prix, son
+poids et son stock. **Le panier et les commandes pointent toujours une
+variante**, jamais un produit.
+
+| Table | Contenu |
+|---|---|
+| `produit` | titre, slug, description HTML, statut (`BROUILLON`, `PUBLIE`, `ARCHIVE`), marque, catégorie, TVA |
+| `variante` | SKU unique, prix d'achat, de vente et remisé **HT**, écotaxe, poids (kg), stock, seuil d'alerte |
+| `attribut`, `valeur_attribut` | ce qui fait varier un produit (Couleur, Layout clavier…) et ses valeurs (Noir, AZERTY…) |
+| `variante_valeur` | les valeurs d'une variante |
+| `variante_image` | les photos d'une variante, `position` 1 = miniature principale |
+| `produit_specification` | caractéristiques communes aux variantes (Garantie, Connectique…) |
+| `produit_univers` | les univers d'un produit |
+
+La base porte les règles qui ne doivent jamais être contournées : **le stock ne
+passe pas sous zéro** (pas de survente, même avec deux commandes simultanées),
+un prix remisé est inférieur au prix de vente, un SKU est unique. Supprimer un
+produit supprime ses variantes, spécifications et images ; une marque, une
+catégorie ou un univers encore utilisé par un produit ne se supprime pas (409).
+`V2` ajoute aussi `actif` sur `tva` : un taux inactif n'est plus proposé pour un
+nouveau produit, mais reste valable pour ceux qui l'utilisent.
+
+**Jeu de démonstration.** Avec le profil `demo`, un catalogue vide se remplit
+au démarrage depuis `catalog-service/src/main/resources/demo/catalogue-demo.json` :
+19 produits et 30 variantes (claviers, souris, casques, écrans, portables,
+composants), avec des promotions, des stocks bas, une rupture, un brouillon et
+un produit archivé. Le chargement ne fait rien si le catalogue a déjà un
+produit : un redémarrage ne crée pas de doublon. Le Docker Compose active ce
+profil ; la production, jamais.
+
+```bash
+./mvnw -pl catalog-service spring-boot:run -Dspring-boot.run.profiles=local-h2,demo
+```
+
+Les tests rejouent aussi les migrations et le jeu de démonstration sur un vrai
+**PostgreSQL 16** (Testcontainers, `PostgresSchemaTest`) : H2 accepte des types
+de colonnes que Hibernate refuse sur PostgreSQL. Sans Docker, ce test est
+ignoré en local, mais il échoue en CI (`CI=true`).
+
+### API interne des variantes
+
+`C10` (#9) : ce que Panier, Commande et le MCP lisent d'une variante. **La
+gateway ne route pas `/api/internal/**`** : seuls les services se l'appellent,
+dans le réseau Docker Compose ou le cluster. C'est pour cela que le prix
+d'achat peut y figurer, et jamais dans l'API publique.
+
+| Chemin | Réponse |
+|---|---|
+| `GET /api/internal/catalog/variants/{id}` | une variante, ou 404 |
+| `GET /api/internal/catalog/variants?ids=1,2,3` | plusieurs variantes en un appel (100 au plus), dans l'ordre demandé ; un id inconnu est ignoré, une liste vide ou trop longue répond 400 |
+
+```json
+{
+  "id": 4, "productId": 2, "productSlug": "logitech-g915-tkl", "sku": "LOGI-G915TKL-AZ-NOI",
+  "designation": "Logitech G915 TKL - Noir, AZERTY",
+  "unitPriceExclTax": 166.76, "salePriceExclTax": 191.66, "discountPriceExclTax": 166.66, "ecoTax": 0.10,
+  "vatRate": 20.00, "purchasePriceExclTax": 130.00, "weightKg": 0.810, "stock": 8,
+  "status": "PUBLIE", "available": true, "imageUrl": null
+}
+```
+
+- **`id`, `designation`, `unitPriceExclTax` et `vatRate` sont lus par
+  `order-service` sous ces noms exacts**, et figés dans la ligne de commande :
+  ne pas les renommer.
+- `unitPriceExclTax` est ce que le client paie avant TVA : le prix remisé s'il
+  y en a un, sinon le prix de vente, **plus l'écotaxe**, qui fait partie du
+  prix. Le détail reste dans les autres champs.
+- `available` est vrai seulement si le produit est publié et la variante en
+  stock. Les brouillons et les produits archivés restent lisibles, avec leur
+  statut, pour qu'un ancien panier ou une ancienne commande s'affiche encore.
+  C'est au service appelant de refuser une variante non disponible.
+- `purchasePriceExclTax` sert à figer le prix d'achat dans la commande, pour les
+  marges.
+
+## Collaborateurs (Keycloak)
+
+`user-service` (`U04` #91) gère les comptes du back-office **dans Keycloak et
+nulle part ailleurs** : Keycloak reste la seule source de vérité sur qui se
+connecte et avec quel rôle. Le service n'a donc pas de table de
+collaborateurs ; il appelle l'Admin API avec le compte de service du client
+`user-service`, dont le jeton est mis en cache jusqu'à 30 s avant son
+expiration.
+
+| Méthode et chemin | Effet |
+|---|---|
+| `GET /api/admin/users/collaborators` | les collaborateurs et admins, par e-mail |
+| `GET /api/admin/users/collaborators/{id}` | un collaborateur, par son id Keycloak (le `sub` de ses jetons) |
+| `POST /api/admin/users/collaborators` | crée le compte : `email`, `firstName`, `lastName`, `role`, `temporaryPassword` |
+| `PUT /api/admin/users/collaborators/{id}/role` | `{"role":"admin"}` ou `{"role":"collaborator"}` |
+| `POST /api/admin/users/collaborators/{id}/disable` | désactive le compte et **ferme ses sessions** |
+| `POST /api/admin/users/collaborators/{id}/enable` | le réactive |
+
+La gateway réserve tout ce sous-arbre au rôle **`admin`**, plus strict que le
+`collaborator` du reste de `/api/admin/**`. Le service valide aussi le jeton
+lui-même (la sécurité de `U01`) : appelé directement, sans jeton, il répond 401.
+
+Règles :
+
+- **un collaborateur est un compte qui porte `collaborator` ou `admin`
+  directement** (pas par un groupe). Les comptes clients sont invisibles ici :
+  l'API répond 404, elle ne peut ni les lire, ni les promouvoir, ni les
+  désactiver ;
+- à la création, l'e-mail sert d'identifiant (en minuscules) et est considéré
+  vérifié ; le mot de passe est **temporaire** : Keycloak en demande un nouveau
+  à la première connexion. La politique du realm s'applique (8 caractères,
+  différent de l'e-mail) : un refus répond **400** avec le message de
+  Keycloak ; un e-mail déjà pris, **409** ;
+- si le rôle ne peut pas être attribué après la création, le compte est
+  supprimé : il ne reste pas de compte sans rôle ;
+- un changement de rôle ajoute le nouveau **avant** de retirer l'ancien : le
+  compte ne perd jamais l'accès en cours de route ;
+- **personne ne change son propre rôle ni ne désactive son propre compte**
+  (409, d'après `X-Auth-Subject`) : un admin ne peut pas laisser la boutique
+  sans administrateur par erreur ;
+- Keycloak injoignable ou en erreur : **502**, pas 500 — le back-office peut
+  proposer de réessayer.
+
+**Le compte de service** a, sur le client `realm-management`, les rôles
+`query-users`, `view-users`, `manage-users` et `view-realm` : de quoi gérer
+des comptes et leurs rôles de realm, rien sur la configuration du realm.
+
+**Le secret** vient de `USER_SERVICE_CLIENT_SECRET`, lu par Keycloak à
+l'import du realm et transmis au service par le compose : `set-me` par défaut
+en local, toujours un Secret sur le cluster (voir
+[`docs/deploiement.md`](docs/deploiement.md), `user-service`).
+
+> **Sur une base Keycloak existante**, l'import ne rejoue pas : le client
+> n'apparaît qu'après `docker compose down -v && docker compose up -d`. Sinon,
+> le créer depuis la console : *Clients* → *Create client* `user-service`,
+> *Client authentication* et *Service accounts roles* cochés, tout le reste
+> décoché ; reporter son secret dans `.env` ; onglet *Service accounts roles*
+> → les quatre rôles de `realm-management` ci-dessus.
+
+```bash
+docker compose up -d                             # Keycloak doit tourner
+./mvnw -pl user-service -am install -DskipTests
+./mvnw -pl user-service spring-boot:run
+curl -s localhost:8082/api/admin/users/collaborators \
+  -H "Authorization: Bearer $ADMIN_TOKEN"        # jeton de admin.demo@ecommerce.test
+```
+
+## MCP : les jetons d'accès
+
+Un client MCP (Claude Desktop, MCP Inspector) n'a pas de compte Keycloak : il
+s'authentifie avec un **jeton MCP** émis depuis le back-office (`M03` #92),
+envoyé dans `Authorization: Bearer mcp_…`. `mcp-service` porte ces jetons et
+le filtre qui les vérifie ; le serveur MCP lui-même (Spring AI, `M01` #50) et
+ses tools (`M02` #51) viendront s'y brancher.
+
+| Méthode et chemin | Effet |
+|---|---|
+| `GET /api/admin/mcp/tokens` | les jetons, du plus récent au plus ancien, avec leur statut et leur dernière utilisation |
+| `GET /api/admin/mcp/tokens/{id}` | un jeton |
+| `POST /api/admin/mcp/tokens` | `{"name":"Claude Desktop - Marius","scopes":["catalog:read"],"expiresAt":"2027-01-01T00:00:00Z"}` → 201, **avec le jeton** |
+| `POST /api/admin/mcp/tokens/{id}/revoke` | révoque, immédiatement et définitivement |
+
+Réservé au rôle **`admin`** par la gateway.
+
+**Le jeton n'est affiché qu'une fois**, dans la réponse à la création : la base
+ne garde que son **empreinte SHA-256** et ses 12 premiers caractères
+(`prefix`), pour que le back-office le reconnaisse. Perdu, il ne se relit pas :
+on le révoque et on en crée un autre. Il fait `mcp_` + 256 bits aléatoires :
+impossible à deviner, d'où une empreinte rapide plutôt que bcrypt, qui coûterait
+quelques centaines de millisecondes à chaque requête MCP sans rien protéger de
+plus.
+
+| Portée | Ouvre |
+|---|---|
+| `catalog:read` | les tools du catalogue |
+| `orders:read` | les tools des commandes |
+| `users:read` | les tools des utilisateurs |
+
+Toutes en lecture : aucun tool MCP n'écrit. Un tool vérifie sa portée avant de
+lire quoi que ce soit, ce qui donne une **403** si elle manque :
+
+```java
+McpAuthentication.requireScope(McpScope.CATALOG_READ);
+```
+
+**Le filtre** protège `/sse`, `/mcp` et `/mcp/*` (les chemins SSE et
+Streamable HTTP du serveur Spring AI), réglables par `mcp.security.protected-paths`.
+Un jeton absent, inconnu, révoqué ou expiré reçoit la **même 401** : on
+n'apprend rien sur les jetons qui existent. Un jeton révoqué l'est à la
+requête suivante, sans cache. `expiresAt` est facultatif : sans lui, le jeton
+vit jusqu'à sa révocation. La dernière utilisation est enregistrée **au plus
+une fois par minute**, pour qu'un client qui enchaîne les appels ne transforme
+pas chacun en écriture.
+
+**Côté gateway**, ces chemins ont leur propre chaîne de sécurité, sans
+validation JWT : un `Bearer mcp_…` y serait refusé comme JWT mal formé avant
+d'atteindre le service. Ils n'ont pas non plus de délai de réponse : un flux
+SSE reste ouvert tant que le client est connecté.
+
+```bash
+./mvnw -pl mcp-service -am install -DskipTests
+./mvnw -pl mcp-service spring-boot:run -Dspring-boot.run.profiles=local-h2
+TOKEN=$(curl -s -X POST localhost:8087/api/admin/mcp/tokens -H 'Content-Type: application/json' \
+  -d '{"name":"essai","scopes":["catalog:read"]}' | jq -r .token)
+curl -i localhost:8087/sse                                   # 401
+curl -i localhost:8087/sse -H "Authorization: Bearer $TOKEN" # 404 tant que M01 n'est pas là
+```
 
 ## Gateway : le point d'entrée de l'API
 
@@ -253,8 +526,14 @@ endroit où une route devient publique, authentifiée ou réservée au back-offi
 | Chemin | Service | Accès |
 |---|---|---|
 | `/api/cart/**` | `cart-service` | **public** — le panier accepte les invités (`P01`) |
+| `/api/catalog/**` | `catalog-service` | **public en lecture** (`GET`) ; le reste exige un jeton |
+| `/api/admin/catalog/**` | `catalog-service` | rôle `collaborator` ou `admin` |
 | `/api/orders/**` | `order-service` | jeton valide |
 | `/api/admin/orders/**` | `order-service` | rôle `collaborator` ou `admin` |
+| `/api/admin/users/collaborators/**` | `user-service` | rôle **`admin`** seulement |
+| `/api/admin/users/**` (le reste) | `user-service` | rôle `collaborator` ou `admin` |
+| `/api/admin/mcp/**` | `mcp-service` | rôle **`admin`** seulement |
+| `/mcp`, `/mcp/**`, `/sse` | `mcp-service` | **jeton MCP**, vérifié par `mcp-service` et non par la gateway |
 | `/actuator/health`, `/actuator/info` | gateway | public |
 | tout le reste | — | jeton valide : on refuse par défaut |
 
@@ -290,9 +569,10 @@ curl -i http://localhost:8080/api/orders    # 401 sans jeton
 ```
 
 Par défaut elle valide les jetons contre
-`http://localhost:8180/realms/ecommerce` et route vers `localhost:8083` et
-`localhost:8084`. Dans Docker, les variables de `compose.yaml` remplacent ces
-valeurs — en particulier les clés de signature, qui se récupèrent sur l'URL
+`http://localhost:8180/realms/ecommerce` et route vers `localhost:8081`,
+`localhost:8082`, `localhost:8083`, `localhost:8084` et `localhost:8087`. Dans
+Docker, les variables de `compose.yaml` remplacent ces valeurs — en particulier
+les clés de signature, qui se récupèrent sur l'URL
 interne de Keycloak alors que l'issuer reste l'URL frontale.
 
 ### CORS
@@ -462,8 +742,8 @@ chaque Pull Request vers `dev` ou `main`, et à chaque merge sur ces branches.
 | Changement | Modules construits |
 |---|---|
 | `<module>/**` | ce module |
-| `common-lib/**`, `pom.xml` racine, `mvnw`, `.mvn/**`, la CI elle-même | tous |
-| le reste : README, `compose.yaml`, `docker/`, `Dockerfile`… | aucun |
+| `common-lib/**`, `common-test/**`, `docker/kafka/create-topics.sh`, `pom.xml` racine, `mvnw`, `.mvn/**`, la CI elle-même | tous |
+| le reste : README, `compose.yaml`, le reste de `docker/`, `Dockerfile`… | aucun |
 
 Chaque job construit d'abord les modules dont il dépend (POM parent,
 `common-lib`) sans leurs tests, puis lance `./mvnw -pl <module> verify`. Sans
@@ -483,6 +763,10 @@ d'eux bloquerait toute PR qui ne le touche pas.
 En cas d'échec, les rapports Surefire du module sont joints au run
 (`surefire-<module>`, gardés 7 jours).
 
+Les tests d'intégration Kafka tournent dans la CI sur un vrai broker (voir
+« Tests d'intégration Kafka ») : Docker y est disponible, et ils **échouent**
+au lieu d'être ignorés s'il ne l'est pas.
+
 ## Ajouter un service
 
 1. Créer le dossier `<domaine>-service`, en anglais et en kebab-case.
@@ -500,6 +784,10 @@ En cas d'échec, les rapports Surefire du module sont joints au run
    base de données à `docker/postgres/init/01-databases.sql` et son entrée dans
    le profil `services` du `compose.yaml`, avec le port réservé au tableau des
    modules.
+8. Lui donner son Deployment dans les manifests de `e-commerce-INFRA`
+   (`k8s/services/`) **avant la release suivante** : `deploy.sh` déploie tous
+   les modules du POM et s'arrête si l'un d'eux n'a pas de Deployment sur le
+   cluster.
 
 La CI n'a pas à être modifiée : elle lit la liste des modules dans le
 `pom.xml` racine.
@@ -528,6 +816,11 @@ auto-configuration, sans annotation ni scan de composants côté service.
 
 - Lever `ResourceNotFoundException` pour un 404 métier : son message est repris
   tel quel dans `message`.
+- Lever `BadRequestException` pour un 400 métier, quand la requête passe la
+  validation mais ne peut pas être traitée telle quelle : son message est repris
+  dans `message`.
+- Lever `ConflictException` pour un 409 : requête valide, mais en conflit avec
+  l'état des données (nom déjà pris, ressource encore utilisée).
 - Les erreurs de validation (`@Valid`) remplissent `details`.
 - Les statuts décidés par Spring sont conservés (404 sur une URL inconnue, 405
   sur une mauvaise méthode, 400 sur un corps illisible).
@@ -681,6 +974,74 @@ docker exec ecommerce-kafka /opt/kafka/bin/kafka-console-consumer.sh \
   --property print.key=true --property print.headers=true
 ```
 
+## Tests d'intégration Kafka
+
+Les tests unitaires appellent un listener à la main. Les tests d'intégration
+vérifient le reste : le vrai broker, la sérialisation JSON partagée, le rejeu
+et le DLT. `common-test` (`K04`) en fournit le modèle.
+
+```java
+class OrderPaidKafkaIntegrationTest extends KafkaIntegrationTest {
+
+    @Autowired KafkaTemplate<Object, Object> kafkaTemplate;
+
+    @Test
+    void shouldEmptyTheCartOfAPaidOrder() throws Exception {
+        kafkaTemplate.send("order.paid", event.orderNumber(), event).get();
+
+        await().atMost(Duration.ofSeconds(30))
+               .untilAsserted(() -> assertThat(itemsInCartOf(userId)).isZero());
+    }
+}
+```
+
+L'exemple complet, à recopier pour un autre consommateur :
+`cart-service/src/test/java/com/ecommerce/cart/kafka/OrderPaidKafkaIntegrationTest.java`.
+Il couvre le cas nominal, la **double publication** d'un même paiement, et un
+**message illisible** qui part au DLT sans bloquer le message suivant.
+
+Pour l'utiliser dans un service, une dépendance de test suffit :
+
+```xml
+<dependency>
+    <groupId>com.ecommerce</groupId>
+    <artifactId>common-test</artifactId>
+    <version>${project.version}</version>
+    <scope>test</scope>
+</dependency>
+```
+
+| Élément | Rôle |
+|---|---|
+| `KafkaIntegrationTest` | classe de base : `@SpringBootTest` branché sur le broker de test |
+| `KafkaTestContainer` | **un seul broker** pour tous les tests de la JVM, démarré au premier usage |
+| `KafkaTestRecords` | publier des octets bruts (producteur défaillant), attendre un message dans un DLT |
+
+**Le broker de test est celui de la prod** : même image `apache/kafka:3.8.1`,
+auto-création des topics **coupée**, et topics créés en jouant
+**`docker/kafka/create-topics.sh` lui-même**, pas une copie de sa liste. Un
+topic oublié dans le script fait donc échouer le test, comme il ferait échouer
+le service déployé. C'est aussi pourquoi un changement de ce script relance
+tous les modules dans la CI.
+
+**Le broker est partagé** par toutes les classes de test : ses topics et les
+offsets des consumer groups persistent d'un test à l'autre. Chaque test
+utilise donc ses propres identifiants (clé, numéro de commande, utilisateur) ;
+`KafkaTestRecords.awaitDeadLetter` filtre le DLT par clé pour cette raison.
+
+**Le rejeu garde ses 3 tentatives**, mais attend 100 ms au lieu de 1 s : un
+test qui envoie un message au DLT prend une seconde, pas sept.
+
+**Docker est requis.** Sans lui, ces tests sont **ignorés** sur un poste, pour
+que le build passe quand même, et **échouent dans la CI** (variable `CI=true`,
+posée par GitHub Actions) : un environnement cassé ne doit pas produire un
+build vert qui n'a rien testé. `CI=true ./mvnw verify` reproduit ce
+comportement en local.
+
+Testcontainers est en **1.21** et non dans la version du BOM Spring Boot
+(1.19.8) : celle-ci parle l'API Docker 1.32, que Docker Engine 29 refuse, et
+les tests étaient alors tous ignorés sans bruit.
+
 ## Conventions
 
 - **Git, commits, branches, PR, tags** : `CLAUDE.md` est la source unique. Rien
@@ -695,6 +1056,6 @@ docker exec ecommerce-kafka /opt/kafka/bin/kafka-console-consumer.sh \
 | Sujet | Issue |
 |---|---|
 | Correspondance UUID Keycloak → identifiant applicatif | `U01` #58 |
-| Client confidentiel pour l'Admin API Keycloak | `U04` #91 |
 | Dockerfile du front web | `D01` #87, après `T06` #11 |
 | Manifests Kubernetes | `D04` #88 |
+| Serveur MCP (Spring AI) et ses tools, derrière le filtre des jetons | `M01` #50, `M02` #51 |
