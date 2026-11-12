@@ -26,6 +26,7 @@ WORKDIR /build
 # reutilisee et le depot Maven n'est pas retelecharge.
 COPY pom.xml ./
 COPY common-lib/pom.xml common-lib/
+COPY common-test/pom.xml common-test/
 COPY api-gateway/pom.xml api-gateway/
 COPY cart-service/pom.xml cart-service/
 COPY catalog-service/pom.xml catalog-service/
@@ -36,7 +37,11 @@ RUN test -n "$MODULE" || (echo "MODULE est obligatoire : --build-arg MODULE=<mod
 RUN mvn -B -q -pl "$MODULE" -am dependency:go-offline -DskipTests
 
 # Puis les sources : une modification de code ne refait que ce qui suit.
+# common-test aussi : c'est une dependance de test des services, et « -am »
+# construit toutes les dependances du module, tests compris, meme si les tests
+# ne sont pas lances.
 COPY common-lib/src common-lib/src
+COPY common-test/src common-test/src
 COPY ${MODULE}/src ${MODULE}/src
 RUN mvn -B -q -pl "$MODULE" -am package -DskipTests \
     && cp "$MODULE"/target/"$MODULE"-*.jar app.jar
