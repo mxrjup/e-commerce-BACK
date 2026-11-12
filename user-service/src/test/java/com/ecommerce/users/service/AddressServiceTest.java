@@ -76,6 +76,43 @@ class AddressServiceTest {
     }
 
     @Test
+    @DisplayName("Should update own address and reset other defaults when set to default")
+    void updateAddress_ShouldUpdateFields_WhenAddressBelongsToUser() {
+        Address existingAddress = Address.builder()
+                .id(10L)
+                .user(mockUser)
+                .recipient("John Doe")
+                .street("Old St")
+                .zipCode("75000")
+                .city("Paris")
+                .country("France")
+                .isDefault(false)
+                .build();
+
+        AddressRequestDto updateDto = AddressRequestDto.builder()
+                .label("Work")
+                .recipient("John Doe")
+                .street("456 New St")
+                .zipCode("69000")
+                .city("Lyon")
+                .country("France")
+                .isDefault(true)
+                .build();
+
+        when(userService.syncUserFromJwt(mockJwt)).thenReturn(mockUser);
+        when(addressRepository.findByIdAndUserId(10L, 1L)).thenReturn(Optional.of(existingAddress));
+        when(addressRepository.findByUserId(1L)).thenReturn(List.of(existingAddress));
+        when(addressRepository.save(any(Address.class))).thenAnswer(i -> i.getArgument(0));
+
+        AddressResponseDto response = addressService.updateAddress(mockJwt, 10L, updateDto);
+
+        assertThat(response.getStreet()).isEqualTo("456 New St");
+        assertThat(response.getCity()).isEqualTo("Lyon");
+        assertThat(response.isDefault()).isTrue();
+        verify(addressRepository, times(1)).save(existingAddress);
+    }
+
+    @Test
     @DisplayName("Should throw ResourceNotFoundException when address to delete does not exist")
     void deleteAddress_ShouldThrowNotFound_WhenAddressDoesNotExist() {
         when(userService.syncUserFromJwt(mockJwt)).thenReturn(mockUser);
@@ -83,5 +120,53 @@ class AddressServiceTest {
 
         assertThatThrownBy(() -> addressService.deleteAddress(mockJwt, 99L))
                 .isInstanceOf(ResourceNotFoundException.class);
+    }
+
+    @Test
+    @DisplayName("Should throw ResourceNotFoundException when updating another user's address")
+    void updateAddress_ShouldThrowNotFound_WhenAddressBelongsToAnotherUser() {
+        AddressRequestDto updateDto = AddressRequestDto.builder()
+                .recipient("Jane Doe")
+                .street("99 Other St")
+                .zipCode("75001")
+                .city("Paris")
+                .country("France")
+                .isDefault(true)
+                .build();
+
+        when(userService.syncUserFromJwt(mockJwt)).thenReturn(mockUser);
+        // Address 42 belongs to another user (e.g. userId = 2), so querying with userId = 1 returns empty
+        when(addressRepository.findByIdAndUserId(42L, 1L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> addressService.updateAddress(mockJwt, 42L, updateDto))
+                .isInstanceOf(ResourceNotFoundException.class);
+
+        verify(addressRepository, never()).save(any());
+        verify(addressRepository, never()).saveAll(any());
+    }
+
+    @Test
+    @DisplayName("Should throw ResourceNotFoundException when setting another user's address as default")
+    void setDefaultAddress_ShouldThrowNotFound_WhenAddressBelongsToAnotherUser() {
+        when(userService.syncUserFromJwt(mockJwt)).thenReturn(mockUser);
+        when(addressRepository.findByIdAndUserId(42L, 1L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> addressService.setDefaultAddress(mockJwt, 42L))
+                .isInstanceOf(ResourceNotFoundException.class);
+
+        verify(addressRepository, never()).save(any());
+        verify(addressRepository, never()).saveAll(any());
+    }
+
+    @Test
+    @DisplayName("Should throw ResourceNotFoundException when deleting another user's address")
+    void deleteAddress_ShouldThrowNotFound_WhenAddressBelongsToAnotherUser() {
+        when(userService.syncUserFromJwt(mockJwt)).thenReturn(mockUser);
+        when(addressRepository.findByIdAndUserId(42L, 1L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> addressService.deleteAddress(mockJwt, 42L))
+                .isInstanceOf(ResourceNotFoundException.class);
+
+        verify(addressRepository, never()).delete(any());
     }
 }
