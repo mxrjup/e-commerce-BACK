@@ -134,10 +134,10 @@ class OrderServiceTest {
     @DisplayName("Checkout calculates totals, shipping fee and returns Stripe session")
     void testCheckout_CalculatesTotalsAndCreatesStripeSession() throws Exception {
         when(catalogClient.getVariant(10L)).thenReturn(
-            new CatalogVariantResponse(10L, "Souris gamer", new BigDecimal("50.00"), new BigDecimal("20.00"))
+            new CatalogVariantResponse(10L, "Souris gamer", new BigDecimal("50.00"), new BigDecimal("20.00"), new BigDecimal("35.00"), 25, true)
         );
         when(catalogClient.getVariant(20L)).thenReturn(
-            new CatalogVariantResponse(20L, "Tapis de souris", new BigDecimal("20.00"), new BigDecimal("20.00"))
+            new CatalogVariantResponse(20L, "Tapis de souris", new BigDecimal("20.00"), new BigDecimal("20.00"), new BigDecimal("12.00"), 15, true)
         );
 
         Session mockSession = mock(Session.class);
@@ -175,7 +175,7 @@ class OrderServiceTest {
         when(stripeClient.checkout().sessions().create(paramsCaptor.capture())).thenReturn(mockSession);
 
         when(catalogClient.getVariant(30L)).thenReturn(
-            new CatalogVariantResponse(30L, "Livre technique", new BigDecimal("10.05"), new BigDecimal("5.50"))
+            new CatalogVariantResponse(30L, "Livre technique", new BigDecimal("10.05"), new BigDecimal("5.50"), new BigDecimal("7.50"), 10, true)
         );
 
         CheckoutItemRequest item = new CheckoutItemRequest(30L, 3);
@@ -251,7 +251,7 @@ class OrderServiceTest {
         when(stripeClient.checkout().sessions().create(paramsCaptor.capture())).thenReturn(mockSession);
 
         when(catalogClient.getVariant(40L)).thenReturn(
-            new CatalogVariantResponse(40L, "Chargeur USB-C", new BigDecimal("15.00"), new BigDecimal("20.00"))
+            new CatalogVariantResponse(40L, "Chargeur USB-C", new BigDecimal("15.00"), new BigDecimal("20.00"), new BigDecimal("9.00"), 10, true)
         );
 
         CheckoutRequest request = new CheckoutRequest(100L, DeliveryMode.STANDARD, List.of(new CheckoutItemRequest(40L, 1)));
@@ -270,7 +270,7 @@ class OrderServiceTest {
         CheckoutItemRequest item = new CheckoutItemRequest(999L, 1);
         CheckoutRequest request = new CheckoutRequest(100L, DeliveryMode.STANDARD, List.of(item));
 
-        assertThrows(IllegalArgumentException.class, () -> orderService.checkout(1L, null, request));
+        assertThrows(ConflictException.class, () -> orderService.checkout(1L, null, request));
     }
 
     @Test
@@ -283,7 +283,7 @@ class OrderServiceTest {
         CheckoutRequest request = new CheckoutRequest(100L, DeliveryMode.STANDARD,
             List.of(new CheckoutItemRequest(77L, 1)));
 
-        assertThrows(IllegalArgumentException.class, () -> orderService.checkout(1L, null, request));
+        assertThrows(ConflictException.class, () -> orderService.checkout(1L, null, request));
     }
 
     @Test
@@ -296,7 +296,7 @@ class OrderServiceTest {
         CheckoutRequest request = new CheckoutRequest(100L, DeliveryMode.STANDARD,
             List.of(new CheckoutItemRequest(88L, 3)));
 
-        assertThrows(IllegalArgumentException.class, () -> orderService.checkout(1L, null, request));
+        assertThrows(ConflictException.class, () -> orderService.checkout(1L, null, request));
     }
 
     @Test
