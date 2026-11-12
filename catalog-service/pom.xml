@@ -61,6 +61,22 @@
             <artifactId>h2</artifactId>
             <scope>runtime</scope>
         </dependency>
+
+        <!--
+          Les migrations et la validation du schema rejouees sur un vrai
+          PostgreSQL : H2 accepte des types que PostgreSQL refuse a Hibernate.
+          Versions fixees par le BOM Testcontainers du POM parent.
+        -->
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>postgresql</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>
