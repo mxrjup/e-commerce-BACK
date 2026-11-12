@@ -73,8 +73,8 @@ changer une, `cp .env.example .env` puis ajuster — le `.env` n'est jamais
 commité.
 
 **Une base de données par service.** `docker/postgres/init/01-databases.sql`
-les crée au premier démarrage (`keycloak`, `ecommerce_cart`, `ecommerce_catalog`
-et `ecommerce_order` aujourd'hui). Ce script ne s'exécute que sur un volume vide : après y avoir ajouté une base,
+les crée au premier démarrage (`keycloak`, `ecommerce_cart`, `ecommerce_catalog`,
+`ecommerce_order` et `ecommerce_mcp` aujourd'hui). Ce script ne s'exécute que sur un volume vide : après y avoir ajouté une base,
 `docker compose down -v && docker compose up -d`.
 
 **Les services applicatifs** sont déclarés derrière le profil `services` :
@@ -117,9 +117,10 @@ transite en dehors du navigateur. Les deux ajoutent l'audience
 `ecommerce-api` dans le jeton d'accès, que la gateway (`T04` #84) pourra
 vérifier.
 
-Le client confidentiel à compte de service, pour l'Admin API de Keycloak,
-viendra avec `U04` (#91) : il porte un secret, il n'a donc rien à faire dans un
-fichier versionné.
+Un troisième client, **`user-service`**, est confidentiel et sans aucun flux
+utilisateur : seul son compte de service sert, pour appeler l'Admin API de
+Keycloak (`U04` #91). Son secret n'est pas dans le fichier, qui ne porte que
+l'expression `${USER_SERVICE_CLIENT_SECRET:set-me}` — voir « Collaborateurs ».
 
 ### Rôles
 
@@ -233,11 +234,11 @@ où personne ne lira jamais rien.
 | `common-test` | Outillage de test partagé (tests d'intégration Kafka) | `K04` | — | en place |
 | `cart-service` | Panier | `P*` | 8083 | en place |
 | `catalog-service` | Catalogue, stock, avis | `C*` | 8081 | référentiels en place (`C05`) |
-| `user-service` | Utilisateurs, adresses, collaborateurs | `U*` | 8082 | à créer |
+| `user-service` | Utilisateurs, adresses, collaborateurs | `U*` | 8082 | comptes clients (`U01`) et collaborateurs (`U04`) en place |
 | `order-service` | Commandes, paiement, livraison | `O*` | 8084 | en place |
 | `notification-service` | Notifications, alertes, emails | `N*` | 8085 | à créer |
 | `support-service` | SAV, tickets | `S*` | 8086 | à créer |
-| `mcp-service` | Serveur MCP | `M*` | 8087 | à créer |
+| `mcp-service` | Serveur MCP | `M*` | 8087 | jetons en place (`M03`), serveur à venir (`M01`) |
 | `api-gateway` | Routage, validation JWT, CORS | `T04` | 8080 | en place |
 
 Les ports sont réservés ici pour éviter les collisions en local et dans le
@@ -308,6 +309,134 @@ curl -s localhost:8081/api/catalog/categories
 > publie le catalogue ailleurs dans le Docker Compose ; en dehors de Docker,
 > `-Dspring-boot.run.arguments=--server.port=8091`.
 
+## Collaborateurs (Keycloak)
+
+`user-service` (`U04` #91) gère les comptes du back-office **dans Keycloak et
+nulle part ailleurs** : Keycloak reste la seule source de vérité sur qui se
+connecte et avec quel rôle. Le service n'a donc pas de table de
+collaborateurs ; il appelle l'Admin API avec le compte de service du client
+`user-service`, dont le jeton est mis en cache jusqu'à 30 s avant son
+expiration.
+
+| Méthode et chemin | Effet |
+|---|---|
+| `GET /api/admin/users/collaborators` | les collaborateurs et admins, par e-mail |
+| `GET /api/admin/users/collaborators/{id}` | un collaborateur, par son id Keycloak (le `sub` de ses jetons) |
+| `POST /api/admin/users/collaborators` | crée le compte : `email`, `firstName`, `lastName`, `role`, `temporaryPassword` |
+| `PUT /api/admin/users/collaborators/{id}/role` | `{"role":"admin"}` ou `{"role":"collaborator"}` |
+| `POST /api/admin/users/collaborators/{id}/disable` | désactive le compte et **ferme ses sessions** |
+| `POST /api/admin/users/collaborators/{id}/enable` | le réactive |
+
+La gateway réserve tout ce sous-arbre au rôle **`admin`**, plus strict que le
+`collaborator` du reste de `/api/admin/**`. Le service valide aussi le jeton
+lui-même (la sécurité de `U01`) : appelé directement, sans jeton, il répond 401.
+
+Règles :
+
+- **un collaborateur est un compte qui porte `collaborator` ou `admin`
+  directement** (pas par un groupe). Les comptes clients sont invisibles ici :
+  l'API répond 404, elle ne peut ni les lire, ni les promouvoir, ni les
+  désactiver ;
+- à la création, l'e-mail sert d'identifiant (en minuscules) et est considéré
+  vérifié ; le mot de passe est **temporaire** : Keycloak en demande un nouveau
+  à la première connexion. La politique du realm s'applique (8 caractères,
+  différent de l'e-mail) : un refus répond **400** avec le message de
+  Keycloak ; un e-mail déjà pris, **409** ;
+- si le rôle ne peut pas être attribué après la création, le compte est
+  supprimé : il ne reste pas de compte sans rôle ;
+- un changement de rôle ajoute le nouveau **avant** de retirer l'ancien : le
+  compte ne perd jamais l'accès en cours de route ;
+- **personne ne change son propre rôle ni ne désactive son propre compte**
+  (409, d'après `X-Auth-Subject`) : un admin ne peut pas laisser la boutique
+  sans administrateur par erreur ;
+- Keycloak injoignable ou en erreur : **502**, pas 500 — le back-office peut
+  proposer de réessayer.
+
+**Le compte de service** a, sur le client `realm-management`, les rôles
+`query-users`, `view-users`, `manage-users` et `view-realm` : de quoi gérer
+des comptes et leurs rôles de realm, rien sur la configuration du realm.
+
+**Le secret** vient de `USER_SERVICE_CLIENT_SECRET`, lu par Keycloak à
+l'import du realm et transmis au service par le compose : `set-me` par défaut
+en local, toujours un Secret sur le cluster (voir
+[`docs/deploiement.md`](docs/deploiement.md), `user-service`).
+
+> **Sur une base Keycloak existante**, l'import ne rejoue pas : le client
+> n'apparaît qu'après `docker compose down -v && docker compose up -d`. Sinon,
+> le créer depuis la console : *Clients* → *Create client* `user-service`,
+> *Client authentication* et *Service accounts roles* cochés, tout le reste
+> décoché ; reporter son secret dans `.env` ; onglet *Service accounts roles*
+> → les quatre rôles de `realm-management` ci-dessus.
+
+```bash
+docker compose up -d                             # Keycloak doit tourner
+./mvnw -pl user-service -am install -DskipTests
+./mvnw -pl user-service spring-boot:run
+curl -s localhost:8082/api/admin/users/collaborators \
+  -H "Authorization: Bearer $ADMIN_TOKEN"        # jeton de admin.demo@ecommerce.test
+```
+
+## MCP : les jetons d'accès
+
+Un client MCP (Claude Desktop, MCP Inspector) n'a pas de compte Keycloak : il
+s'authentifie avec un **jeton MCP** émis depuis le back-office (`M03` #92),
+envoyé dans `Authorization: Bearer mcp_…`. `mcp-service` porte ces jetons et
+le filtre qui les vérifie ; le serveur MCP lui-même (Spring AI, `M01` #50) et
+ses tools (`M02` #51) viendront s'y brancher.
+
+| Méthode et chemin | Effet |
+|---|---|
+| `GET /api/admin/mcp/tokens` | les jetons, du plus récent au plus ancien, avec leur statut et leur dernière utilisation |
+| `GET /api/admin/mcp/tokens/{id}` | un jeton |
+| `POST /api/admin/mcp/tokens` | `{"name":"Claude Desktop - Marius","scopes":["catalog:read"],"expiresAt":"2027-01-01T00:00:00Z"}` → 201, **avec le jeton** |
+| `POST /api/admin/mcp/tokens/{id}/revoke` | révoque, immédiatement et définitivement |
+
+Réservé au rôle **`admin`** par la gateway.
+
+**Le jeton n'est affiché qu'une fois**, dans la réponse à la création : la base
+ne garde que son **empreinte SHA-256** et ses 12 premiers caractères
+(`prefix`), pour que le back-office le reconnaisse. Perdu, il ne se relit pas :
+on le révoque et on en crée un autre. Il fait `mcp_` + 256 bits aléatoires :
+impossible à deviner, d'où une empreinte rapide plutôt que bcrypt, qui coûterait
+quelques centaines de millisecondes à chaque requête MCP sans rien protéger de
+plus.
+
+| Portée | Ouvre |
+|---|---|
+| `catalog:read` | les tools du catalogue |
+| `orders:read` | les tools des commandes |
+| `users:read` | les tools des utilisateurs |
+
+Toutes en lecture : aucun tool MCP n'écrit. Un tool vérifie sa portée avant de
+lire quoi que ce soit, ce qui donne une **403** si elle manque :
+
+```java
+McpAuthentication.requireScope(McpScope.CATALOG_READ);
+```
+
+**Le filtre** protège `/sse`, `/mcp` et `/mcp/*` (les chemins SSE et
+Streamable HTTP du serveur Spring AI), réglables par `mcp.security.protected-paths`.
+Un jeton absent, inconnu, révoqué ou expiré reçoit la **même 401** : on
+n'apprend rien sur les jetons qui existent. Un jeton révoqué l'est à la
+requête suivante, sans cache. `expiresAt` est facultatif : sans lui, le jeton
+vit jusqu'à sa révocation. La dernière utilisation est enregistrée **au plus
+une fois par minute**, pour qu'un client qui enchaîne les appels ne transforme
+pas chacun en écriture.
+
+**Côté gateway**, ces chemins ont leur propre chaîne de sécurité, sans
+validation JWT : un `Bearer mcp_…` y serait refusé comme JWT mal formé avant
+d'atteindre le service. Ils n'ont pas non plus de délai de réponse : un flux
+SSE reste ouvert tant que le client est connecté.
+
+```bash
+./mvnw -pl mcp-service -am install -DskipTests
+./mvnw -pl mcp-service spring-boot:run -Dspring-boot.run.profiles=local-h2
+TOKEN=$(curl -s -X POST localhost:8087/api/admin/mcp/tokens -H 'Content-Type: application/json' \
+  -d '{"name":"essai","scopes":["catalog:read"]}' | jq -r .token)
+curl -i localhost:8087/sse                                   # 401
+curl -i localhost:8087/sse -H "Authorization: Bearer $TOKEN" # 404 tant que M01 n'est pas là
+```
+
 ## Gateway : le point d'entrée de l'API
 
 Tout le trafic entre par `api-gateway`, sur le port 8080. Les services ne sont
@@ -323,6 +452,10 @@ endroit où une route devient publique, authentifiée ou réservée au back-offi
 | `/api/admin/catalog/**` | `catalog-service` | rôle `collaborator` ou `admin` |
 | `/api/orders/**` | `order-service` | jeton valide |
 | `/api/admin/orders/**` | `order-service` | rôle `collaborator` ou `admin` |
+| `/api/admin/users/collaborators/**` | `user-service` | rôle **`admin`** seulement |
+| `/api/admin/users/**` (le reste) | `user-service` | rôle `collaborator` ou `admin` |
+| `/api/admin/mcp/**` | `mcp-service` | rôle **`admin`** seulement |
+| `/mcp`, `/mcp/**`, `/sse` | `mcp-service` | **jeton MCP**, vérifié par `mcp-service` et non par la gateway |
 | `/actuator/health`, `/actuator/info` | gateway | public |
 | tout le reste | — | jeton valide : on refuse par défaut |
 
@@ -359,8 +492,9 @@ curl -i http://localhost:8080/api/orders    # 401 sans jeton
 
 Par défaut elle valide les jetons contre
 `http://localhost:8180/realms/ecommerce` et route vers `localhost:8081`,
-`localhost:8083` et `localhost:8084`. Dans Docker, les variables de `compose.yaml` remplacent ces
-valeurs — en particulier les clés de signature, qui se récupèrent sur l'URL
+`localhost:8082`, `localhost:8083`, `localhost:8084` et `localhost:8087`. Dans
+Docker, les variables de `compose.yaml` remplacent ces valeurs — en particulier
+les clés de signature, qui se récupèrent sur l'URL
 interne de Keycloak alors que l'issuer reste l'URL frontale.
 
 ### CORS
@@ -844,6 +978,6 @@ les tests étaient alors tous ignorés sans bruit.
 | Sujet | Issue |
 |---|---|
 | Correspondance UUID Keycloak → identifiant applicatif | `U01` #58 |
-| Client confidentiel pour l'Admin API Keycloak | `U04` #91 |
 | Dockerfile du front web | `D01` #87, après `T06` #11 |
 | Manifests Kubernetes | `D04` #88 |
+| Serveur MCP (Spring AI) et ses tools, derrière le filtre des jetons | `M01` #50, `M02` #51 |

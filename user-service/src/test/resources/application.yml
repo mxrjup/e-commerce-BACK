@@ -16,3 +16,12 @@ spring:
       hibernate:
         format_sql: true
     open-in-view: false
+
+# Les appels a Keycloak sont interceptes par le MockRestServiceServer des
+# tests : cette URL n'est jamais contactee.
+keycloak:
+  admin:
+    server-url: http://keycloak.test
+    realm: ecommerce
+    client-id: user-service
+    client-secret: test-secret

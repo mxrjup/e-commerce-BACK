@@ -22,6 +22,10 @@ spring:
           uri: ${CATALOG_SERVICE_URI:http://localhost:8081}
           predicates:
             - Path=/api/admin/catalog/**
+        - id: users-admin
+          uri: ${USER_SERVICE_URI:http://localhost:8082}
+          predicates:
+            - Path=/api/admin/users/**
         - id: orders
           uri: ${ORDER_SERVICE_URI:http://localhost:8084}
           predicates:
@@ -30,6 +34,19 @@ spring:
           uri: ${ORDER_SERVICE_URI:http://localhost:8084}
           predicates:
             - Path=/api/admin/orders/**
+        - id: mcp-admin
+          uri: ${MCP_SERVICE_URI:http://localhost:8087}
+          predicates:
+            - Path=/api/admin/mcp/**
+        # Transport MCP (M01) : authentifie par un jeton MCP, verifie par
+        # mcp-service et non par la gateway (voir SecurityConfig). Pas de
+        # delai de reponse : un flux SSE reste ouvert tant que le client vit.
+        - id: mcp
+          uri: ${MCP_SERVICE_URI:http://localhost:8087}
+          predicates:
+            - Path=/mcp,/mcp/**,/sse
+          metadata:
+            response-timeout: -1
       httpclient:
         connect-timeout: 2000
         response-timeout: 10s
