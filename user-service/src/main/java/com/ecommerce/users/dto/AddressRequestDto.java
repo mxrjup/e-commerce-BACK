@@ -1,11 +1,13 @@
 package com.ecommerce.users.dto;
 
 import jakarta.validation.constraints.NotBlank;
+import lombok.extern.jackson.Jacksonized;
 import lombok.Builder;
 import lombok.Data;
 
 @Data
 @Builder
+@Jacksonized
 public class AddressRequestDto {
     private String label;
 
