@@ -1,6 +1,9 @@
 package com.ecommerce.cart.service;
 
+import com.ecommerce.cart.client.CatalogClient;
+import com.ecommerce.cart.client.CatalogVariantResponse;
 import com.ecommerce.cart.dto.AddCartItemRequest;
+import com.ecommerce.cart.dto.CartItemResponse;
 import com.ecommerce.cart.dto.CartResponse;
 import com.ecommerce.cart.entity.Cart;
 import com.ecommerce.cart.entity.CartItem;
@@ -12,6 +15,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -22,6 +26,7 @@ public class CartService {
 
     private final CartRepository cartRepository;
     private final ProcessedOrderEventRepository processedOrderEventRepository;
+    private final CatalogClient catalogClient;
 
     public Cart getOrCreateCart(Long userId, String sessionToken) {
 
@@ -46,7 +51,47 @@ public class CartService {
      */
     public CartResponse getCart(Long userId, String sessionToken) {
         Cart cart = getOrCreateCart(userId, sessionToken);
-        return CartResponse.fromEntity(cart);
+        return buildEnrichedCartResponse(cart);
+    }
+
+    private CartResponse buildEnrichedCartResponse(Cart cart) {
+        List<CartItemResponse> items = cart.getItems().stream()
+                .map(this::enrichCartItem)
+                .toList();
+
+        CartResponse response = CartResponse.fromEntity(cart);
+        response.setItems(items);
+        response.setTotalItems(items.stream().mapToInt(CartItemResponse::getQuantity).sum());
+        return response;
+    }
+
+    private CartItemResponse enrichCartItem(CartItem item) {
+        Optional<CatalogVariantResponse> variantOpt = catalogClient.getVariant(item.getVariantId());
+
+        if (variantOpt.isEmpty()) {
+            return CartItemResponse.builder()
+                    .id(item.getId())
+                    .variantId(item.getVariantId())
+                    .quantity(item.getQuantity())
+                    .productName(null)
+                    .currentPrice(null)
+                    .available(false)
+                    .imageUrl(null)
+                    .status("UNAVAILABLE")
+                    .build();
+        }
+
+        CatalogVariantResponse variant = variantOpt.get();
+        return CartItemResponse.builder()
+                .id(item.getId())
+                .variantId(item.getVariantId())
+                .quantity(item.getQuantity())
+                .productName(variant.designation())
+                .currentPrice(variant.currentPrice())
+                .available(variant.available())
+                .imageUrl(variant.imageUrl())
+                .status(variant.available() ? "AVAILABLE" : "UNAVAILABLE")
+                .build();
     }
 
     public CartResponse addItem(Long userId, String sessionToken, AddCartItemRequest request) {
@@ -65,7 +110,7 @@ public class CartService {
         }
 
         Cart savedCart = cartRepository.save(cart);
-        return CartResponse.fromEntity(savedCart);
+        return buildEnrichedCartResponse(savedCart);
     }
 
 
@@ -84,7 +129,7 @@ public class CartService {
         }
 
         Cart savedCart = cartRepository.save(cart);
-        return CartResponse.fromEntity(savedCart);
+        return buildEnrichedCartResponse(savedCart);
     }
 
 
@@ -99,7 +144,7 @@ public class CartService {
         cart.removeItem(item);
 
         Cart savedCart = cartRepository.save(cart);
-        return CartResponse.fromEntity(savedCart);
+        return buildEnrichedCartResponse(savedCart);
     }
 
 
@@ -109,7 +154,7 @@ public class CartService {
         cart.clearItems();
 
         Cart savedCart = cartRepository.save(cart);
-        return CartResponse.fromEntity(savedCart);
+        return buildEnrichedCartResponse(savedCart);
     }
 
 
@@ -150,7 +195,7 @@ public class CartService {
         cartRepository.delete(guestCart);
         Cart savedCart = cartRepository.save(userCart);
 
-        return CartResponse.fromEntity(savedCart);
+        return buildEnrichedCartResponse(savedCart);
     }
 
 }
