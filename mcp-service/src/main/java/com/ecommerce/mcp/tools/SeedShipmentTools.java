@@ -1,5 +1,7 @@
 package com.ecommerce.mcp.tools;
 
+import com.ecommerce.mcp.auth.McpAuthentication;
+import com.ecommerce.mcp.token.McpScope;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springaicommunity.mcp.annotation.McpTool;
@@ -60,6 +62,7 @@ public class SeedShipmentTools {
                     idempotentHint = true, openWorldHint = false))
     public ShipmentLookup getPendingShipments(
             @McpToolParam(description = "Product name, for example Logitech G Pro", required = true) String productName) {
+        McpAuthentication.requireScope(McpScope.ORDERS_READ);
         if (blank(productName) || productName.strip().length() > 200) {
             throw new IllegalArgumentException("Product name must contain 1 to 200 characters");
         }

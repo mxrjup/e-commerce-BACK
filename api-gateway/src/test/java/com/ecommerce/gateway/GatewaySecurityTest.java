@@ -11,6 +11,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.HttpMethod;
+import org.springframework.security.oauth2.jwt.BadJwtException;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.ReactiveJwtDecoder;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -64,6 +65,7 @@ class GatewaySecurityTest {
         registry.add("CART_SERVICE_URI", () -> uri);
         registry.add("ORDER_SERVICE_URI", () -> uri);
         registry.add("CATALOG_SERVICE_URI", () -> uri);
+        registry.add("USER_SERVICE_URI", () -> uri);
         registry.add("MCP_SERVICE_URI", () -> uri);
         // Le decodeur de jetons est mocke : ces URL ne sont jamais appelees,
         // elles evitent seulement un appel reseau au demarrage.
@@ -168,6 +170,80 @@ class GatewaySecurityTest {
     }
 
     @Test
+    void shouldReserveCollaboratorManagementToAdministrators() throws InterruptedException {
+        givenTokenFor("a-collaborator", "client", "collaborator");
+        webTestClient.get().uri("/api/admin/users/collaborators")
+                .header("Authorization", "Bearer any-value-the-decoder-is-mocked")
+                .exchange()
+                .expectStatus().isForbidden();
+        webTestClient.post().uri("/api/admin/users/collaborators/some-id/disable")
+                .header("Authorization", "Bearer any-value-the-decoder-is-mocked")
+                .exchange()
+                .expectStatus().isForbidden();
+
+        givenTokenFor("an-admin", "client", "collaborator", "admin");
+        BACKEND.enqueue(ok());
+        webTestClient.get().uri("/api/admin/users/collaborators")
+                .header("Authorization", "Bearer any-value-the-decoder-is-mocked")
+                .exchange()
+                .expectStatus().isOk();
+
+        RecordedRequest forwarded = BACKEND.takeRequest();
+        assertThat(forwarded.getPath()).isEqualTo("/api/admin/users/collaborators");
+        assertThat(forwarded.getHeader(IdentityHeadersFilter.SUBJECT_HEADER)).isEqualTo("an-admin");
+    }
+
+    @Test
+    void shouldPassAnMcpTokenThroughToTheMcpServiceUntouched() throws InterruptedException {
+        BACKEND.enqueue(ok());
+
+        webTestClient.post().uri("/mcp/message?sessionId=abc")
+                .header("Authorization", "Bearer mcp_an-opaque-token-not-a-jwt")
+                .header(IdentityHeadersFilter.SUBJECT_HEADER, "someone-else")
+                .exchange()
+                .expectStatus().isOk();
+
+        RecordedRequest forwarded = BACKEND.takeRequest();
+        assertThat(forwarded.getPath()).isEqualTo("/mcp/message?sessionId=abc");
+        assertThat(forwarded.getHeader("Authorization")).isEqualTo("Bearer mcp_an-opaque-token-not-a-jwt");
+        assertThat(forwarded.getHeader(IdentityHeadersFilter.SUBJECT_HEADER)).isNull();
+    }
+
+    @Test
+    void shouldRouteTheSseEndpointToTheMcpService() throws InterruptedException {
+        BACKEND.enqueue(ok());
+
+        webTestClient.get().uri("/sse").exchange().expectStatus().isOk();
+
+        assertThat(BACKEND.takeRequest().getPath()).isEqualTo("/sse");
+    }
+
+    @Test
+    void shouldReserveMcpTokenManagementToAdministrators() throws InterruptedException {
+        // Un jeton MCP n'est pas un JWT : le vrai decodeur le refuse ainsi.
+        given(jwtDecoder.decode(anyString())).willReturn(Mono.error(new BadJwtException("Malformed token")));
+        webTestClient.get().uri("/api/admin/mcp/tokens")
+                .header("Authorization", "Bearer mcp_an-mcp-token-is-no-way-in-here")
+                .exchange()
+                .expectStatus().isUnauthorized();
+
+        givenTokenFor("a-collaborator", "client", "collaborator");
+        webTestClient.post().uri("/api/admin/mcp/tokens")
+                .header("Authorization", "Bearer any-value-the-decoder-is-mocked")
+                .exchange()
+                .expectStatus().isForbidden();
+
+        givenTokenFor("an-admin", "client", "collaborator", "admin");
+        BACKEND.enqueue(ok());
+        webTestClient.get().uri("/api/admin/mcp/tokens")
+                .header("Authorization", "Bearer any-value-the-decoder-is-mocked")
+                .exchange()
+                .expectStatus().isOk();
+
+        assertThat(BACKEND.takeRequest().getPath()).isEqualTo("/api/admin/mcp/tokens");
+    }
+
+    @Test
     void shouldAllowTheStripeWebhookWithoutATokenButOnlyForPost() throws InterruptedException {
         BACKEND.enqueue(ok());
 
@@ -237,26 +313,14 @@ class GatewaySecurityTest {
     }
 
     @Test
-    void shouldRequireAnAdminTokenForMcp() {
-        webTestClient.post().uri("/api/mcp").exchange()
-                .expectStatus().isUnauthorized();
-        for (String role : List.of("client", "collaborator")) {
-            givenTokenFor("a-" + role, role);
-            webTestClient.post().uri("/api/mcp")
-                    .header("Authorization", "Bearer test-token").exchange()
-                    .expectStatus().isForbidden();
-        }
-    }
-
-    @Test
-    void shouldForwardMcpRequestsAndSessionHeadersForAnAdmin() throws InterruptedException {
+    void shouldForwardMcpRequestsAndSessionHeaders() throws InterruptedException {
         givenTokenFor("an-admin", "admin");
         String initialize = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\"}";
         BACKEND.enqueue(new MockResponse().setResponseCode(200)
                 .addHeader("Content-Type", "text/event-stream")
                 .addHeader("Mcp-Session-Id", "new-session")
                 .setBody("event: message\ndata: {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{}}\n\n"));
-        webTestClient.post().uri("/api/mcp")
+        webTestClient.post().uri("/mcp")
                 .header("Authorization", "Bearer test-token")
                 .header("Content-Type", "application/json")
                 .header("Accept", "application/json, text/event-stream")
@@ -269,14 +333,14 @@ class GatewaySecurityTest {
 
         RecordedRequest forwarded = BACKEND.takeRequest(5, TimeUnit.SECONDS);
         assertThat(forwarded).isNotNull();
-        assertThat(forwarded.getPath()).isEqualTo("/api/mcp");
+        assertThat(forwarded.getPath()).isEqualTo("/mcp");
         assertThat(forwarded.getBody().readUtf8()).isEqualTo(initialize);
         assertThat(forwarded.getHeader("MCP-Protocol-Version")).isEqualTo("2025-03-26");
         assertThat(forwarded.getHeader("Accept")).contains("text/event-stream");
 
         for (HttpMethod method : List.of(HttpMethod.GET, HttpMethod.DELETE)) {
             BACKEND.enqueue(ok());
-            webTestClient.method(method).uri("/api/mcp")
+            webTestClient.method(method).uri("/mcp")
                     .header("Authorization", "Bearer test-token")
                     .header("Mcp-Session-Id", "new-session")
                     .header("Last-Event-ID", "event-42").exchange()
@@ -284,7 +348,7 @@ class GatewaySecurityTest {
             RecordedRequest sessionRequest = BACKEND.takeRequest(5, TimeUnit.SECONDS);
             assertThat(sessionRequest).isNotNull();
             assertThat(sessionRequest.getMethod()).isEqualTo(method.name());
-            assertThat(sessionRequest.getPath()).isEqualTo("/api/mcp");
+            assertThat(sessionRequest.getPath()).isEqualTo("/mcp");
             assertThat(sessionRequest.getHeader("Mcp-Session-Id")).isEqualTo("new-session");
             assertThat(sessionRequest.getHeader("Last-Event-ID")).isEqualTo("event-42");
         }
@@ -298,7 +362,7 @@ class GatewaySecurityTest {
                 .setHeadersDelay(11, TimeUnit.SECONDS)
                 .setBody("event: message\ndata: {}\n\n"));
         webTestClient.mutate().responseTimeout(Duration.ofSeconds(20)).build()
-                .get().uri("/api/mcp")
+                .get().uri("/mcp")
                 .header("Authorization", "Bearer test-token")
                 .header("Accept", "text/event-stream")
                 .exchange().expectStatus().isOk();
@@ -307,7 +371,7 @@ class GatewaySecurityTest {
 
     @Test
     void shouldAllowMcpHeadersInBrowserPreflights() {
-        webTestClient.options().uri("/api/mcp")
+        webTestClient.options().uri("/mcp")
                 .header("Origin", "http://localhost:5173")
                 .header("Access-Control-Request-Method", "POST")
                 .header("Access-Control-Request-Headers",

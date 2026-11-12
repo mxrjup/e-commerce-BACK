@@ -18,6 +18,11 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
     List<Order> findByUserId(Long userId);
 
     /**
+     * Find the authenticated user orders sorted by most recent first.
+     */
+    List<Order> findByUserIdOrderByCreatedAtDesc(Long userId);
+
+    /**
      * Find the order with the associated order number.
      */
     Optional<Order> findByOrderNumber(String orderNumber);

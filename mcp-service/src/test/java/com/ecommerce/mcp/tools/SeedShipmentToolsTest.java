@@ -13,6 +13,21 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class SeedShipmentToolsTest {
+    @org.junit.jupiter.api.BeforeEach
+    void authenticate() {
+        var request = new org.springframework.mock.web.MockHttpServletRequest();
+        request.setAttribute(com.ecommerce.mcp.auth.McpPrincipal.class.getName(),
+                new com.ecommerce.mcp.auth.McpPrincipal(1L, "unit test",
+                        java.util.Set.of(com.ecommerce.mcp.token.McpScope.ORDERS_READ)));
+        org.springframework.web.context.request.RequestContextHolder.setRequestAttributes(
+                new org.springframework.web.context.request.ServletRequestAttributes(request));
+    }
+
+    @org.junit.jupiter.api.AfterEach
+    void clearAuthentication() {
+        org.springframework.web.context.request.RequestContextHolder.resetRequestAttributes();
+    }
+
     @Test
     void countsOnlyRemainingPreparationUnitsAndDistinguishesMissingProducts() throws Exception {
         var tools = new SeedShipmentTools(new ObjectMapper(), new ClassPathResource("seed/product-shipments.json"));

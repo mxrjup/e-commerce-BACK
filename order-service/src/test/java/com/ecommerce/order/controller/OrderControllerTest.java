@@ -1,6 +1,11 @@
 package com.ecommerce.order.controller;
 
+import com.ecommerce.order.dto.OrderDetailResponse;
+import com.ecommerce.order.dto.OrderHistoryResponse;
 import com.ecommerce.order.service.OrderService;
+import java.math.BigDecimal;
+import java.time.Instant;
+import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -10,7 +15,9 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
 import static org.mockito.Mockito.*;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @WebMvcTest(OrderController.class)
@@ -48,6 +55,64 @@ class OrderControllerTest {
                 .andExpect(status().isOk());
 
         verify(orderService).handleStripeWebhook(payload, signature);
+    }
+
+    @Test
+    @DisplayName("GET /api/orders/history returns the authenticated user orders")
+    void testGetOrderHistory_ReturnsUserOrders() throws Exception {
+        OrderHistoryResponse history = new OrderHistoryResponse(
+            42L,
+            "CMD-2026-000123",
+            "PAID",
+            "STANDARD",
+            BigDecimal.valueOf(149.90),
+            3,
+            Instant.parse("2026-11-11T10:30:00Z")
+        );
+
+        when(orderService.getOrderHistory(42L)).thenReturn(List.of(history));
+
+        mockMvc.perform(get("/api/orders/history")
+                        .header("X-User-Id", 42L)
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].id").value(42))
+                .andExpect(jsonPath("$[0].orderNumber").value("CMD-2026-000123"))
+                .andExpect(jsonPath("$[0].status").value("PAID"))
+                .andExpect(jsonPath("$[0].deliveryMode").value("STANDARD"))
+                .andExpect(jsonPath("$[0].itemCount").value(3));
+
+        verify(orderService).getOrderHistory(42L);
+    }
+
+    @Test
+    @DisplayName("GET /api/orders/{id} returns the order detail for the authenticated user")
+    void testGetOrderDetail_ReturnsOrderDetail() throws Exception {
+        OrderDetailResponse detail = new OrderDetailResponse(
+            42L,
+            "CMD-2026-000123",
+            "PAID",
+            "STANDARD",
+            BigDecimal.valueOf(149.90),
+            BigDecimal.valueOf(149.90),
+            Instant.parse("2026-11-11T10:30:00Z"),
+            "https://invoice.stripe.com/invoice/test_123",
+            List.of()
+        );
+
+        when(orderService.getOrderDetail(42L, 42L)).thenReturn(detail);
+
+        mockMvc.perform(get("/api/orders/42")
+                        .header("X-User-Id", 42L)
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(42))
+                .andExpect(jsonPath("$.orderNumber").value("CMD-2026-000123"))
+                .andExpect(jsonPath("$.status").value("PAID"))
+                .andExpect(jsonPath("$.deliveryMode").value("STANDARD"))
+                .andExpect(jsonPath("$.invoiceUrl").value("https://invoice.stripe.com/invoice/test_123"));
+
+        verify(orderService).getOrderDetail(42L, 42L);
     }
 
 }

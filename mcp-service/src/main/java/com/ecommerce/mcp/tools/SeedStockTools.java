@@ -1,5 +1,7 @@
 package com.ecommerce.mcp.tools;
 
+import com.ecommerce.mcp.auth.McpAuthentication;
+import com.ecommerce.mcp.token.McpScope;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springaicommunity.mcp.annotation.McpTool;
@@ -50,6 +52,7 @@ public class SeedStockTools {
     public StockLookup getProductStock(
             @McpToolParam(description = "Product name only, for example Logitech G Pro", required = true)
             String productName) {
+        McpAuthentication.requireScope(McpScope.CATALOG_READ);
         if (productName == null || productName.isBlank() || productName.strip().length() > 200) {
             throw new IllegalArgumentException("Product name must contain 1 to 200 characters");
         }

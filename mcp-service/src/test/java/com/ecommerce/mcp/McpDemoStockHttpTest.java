@@ -15,6 +15,27 @@ class McpDemoStockHttpTest extends McpHttpTest {
 
     private final ObjectMapper json = new ObjectMapper();
 
+    @Test
+    void shouldUseTheCurrentRequestScopesAndNeverReturnDataForAnUnauthorizedTool() throws Exception {
+        String session = initializeSession();
+        token = tokenService.create(new com.ecommerce.mcp.token.CreateMcpTokenRequest("catalog only",
+                java.util.Set.of(com.ecommerce.mcp.token.McpScope.CATALOG_READ), null), "test").token();
+        var denied = post(session, """
+                {"jsonrpc":"2.0","id":20,"method":"tools/call","params":{
+                  "name":"get_pending_shipments","arguments":{"productName":"Logitech G Pro"}}}
+                """);
+        assertThat(denied.statusCode()).isEqualTo(200);
+        var result = rpcBody(denied).path("result");
+        assertThat(result.path("isError").asBoolean()).isTrue();
+        assertThat(result.toString()).contains("orders:read").doesNotContain("pendingUnits");
+        var allowed = post(session, """
+                {"jsonrpc":"2.0","id":21,"method":"tools/call","params":{
+                  "name":"get_product_stock","arguments":{"productName":"Logitech G Pro"}}}
+                """);
+        assertThat(rpcBody(allowed).path("result").path("isError").asBoolean()).isFalse();
+        assertThat(rpcBody(allowed).toString()).contains("24");
+    }
+
     @Override
     protected void assertTools(JsonNode tools) {
         assertThat(tools.isArray()).isTrue();

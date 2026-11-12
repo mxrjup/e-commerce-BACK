@@ -22,9 +22,11 @@
    
     <modules>
         <module>common-lib</module>
+        <module>common-test</module>
         <module>api-gateway</module>
         <module>catalog-service</module>
         <module>cart-service</module>
+        <module>user-service</module>
         <module>order-service</module>
         <module>mcp-service</module>
     </modules>
@@ -36,6 +38,12 @@
         <!-- Versions non gerees par le BOM Spring Boot : a centraliser ici. -->
         <springdoc.version>2.6.0</springdoc.version>
         <spring-cloud.version>2023.0.3</spring-cloud.version>
+        <!--
+          Remplace la 1.19.8 du BOM Spring Boot 3.3 : elle parle l'API Docker
+          1.32, que Docker Engine 29 refuse (« client version 1.32 is too old »).
+          La 1.21 negocie la version d'API avec le daemon.
+        -->
+        <testcontainers.version>1.21.4</testcontainers.version>
     </properties>
 
     <dependencyManagement>

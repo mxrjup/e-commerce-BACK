@@ -60,6 +60,14 @@
             <artifactId>spring-kafka</artifactId>
         </dependency>
 
+        <!-- Tests d'integration Kafka sur un vrai broker (K04) -->
+        <dependency>
+            <groupId>com.ecommerce</groupId>
+            <artifactId>common-test</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+
         <!-- PostgreSQL Driver -->
         <dependency>
             <groupId>org.postgresql</groupId>

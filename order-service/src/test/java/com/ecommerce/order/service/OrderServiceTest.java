@@ -22,6 +22,7 @@ import com.ecommerce.order.entity.OrderItem;
 import com.ecommerce.order.entity.OrderStatus;
 import com.ecommerce.order.repository.OrderRepository;
 import com.stripe.StripeClient;
+import com.stripe.model.Invoice;
 import com.stripe.model.checkout.Session;
 import com.stripe.param.checkout.SessionCreateParams;
 import java.math.BigDecimal;
@@ -36,6 +37,7 @@ import javax.crypto.spec.SecretKeySpec;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.Answers;
+import org.mockito.MockedStatic;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
@@ -294,7 +296,7 @@ class OrderServiceTest {
     }
 
     @Test
-    @DisplayName("Webhook with valid signature marks order as IN_PREPARATION and publishes Kafka event")
+    @DisplayName("Webhook with valid signature marks order as IN_PREPARATION and stores invoice URL")
     void testHandleStripeWebhook_Success() throws Exception {
         Order order = new Order();
         order.setUserId(1L);
@@ -303,15 +305,23 @@ class OrderServiceTest {
         order.setStripeSessionId("cs_test_success_123");
         orderRepository.save(order);
 
-        String payload = "{\"id\":\"evt_123\",\"object\":\"event\",\"api_version\":\"" + com.stripe.Stripe.API_VERSION + "\",\"type\":\"checkout.session.completed\",\"data\":{\"object\":{\"id\":\"cs_test_success_123\",\"object\":\"checkout.session\",\"payment_status\":\"paid\"}}}";
+        String payload = "{\"id\":\"evt_123\",\"object\":\"event\",\"api_version\":\"" + com.stripe.Stripe.API_VERSION + "\",\"type\":\"checkout.session.completed\",\"data\":{\"object\":{\"id\":\"cs_test_success_123\",\"object\":\"checkout.session\",\"payment_status\":\"paid\",\"invoice\":\"in_test_123\"}}}";
         String sigHeader = generateStripeSignature(payload, stripeProperties.getWebhookSecret());
         when(kafkaTemplate.send(eq("order.paid"), eq("CMD-2026-000099"), any(OrderPaidEvent.class)))
             .thenReturn(CompletableFuture.completedFuture(mock(SendResult.class)));
 
-        orderService.handleStripeWebhook(payload, sigHeader);
+        Invoice invoice = mock(Invoice.class);
+        when(invoice.getHostedInvoiceUrl()).thenReturn("https://invoice.stripe.com/invoice/test_123");
+
+        try (MockedStatic<Invoice> mockedInvoice = mockStatic(Invoice.class)) {
+            mockedInvoice.when(() -> Invoice.retrieve("in_test_123")).thenReturn(invoice);
+
+            orderService.handleStripeWebhook(payload, sigHeader);
+        }
 
         Order updated = orderRepository.findByStripeSessionId("cs_test_success_123").orElseThrow();
         assertEquals(OrderStatus.IN_PREPARATION, updated.getStatus());
+        assertEquals("https://invoice.stripe.com/invoice/test_123", updated.getInvoiceUrl());
         verify(kafkaTemplate).send(eq("order.paid"), eq("CMD-2026-000099"), any(OrderPaidEvent.class));
     }
 
