@@ -73,8 +73,8 @@ changer une, `cp .env.example .env` puis ajuster — le `.env` n'est jamais
 commité.
 
 **Une base de données par service.** `docker/postgres/init/01-databases.sql`
-les crée au premier démarrage (`keycloak`, `ecommerce_cart`, `ecommerce_catalog`,
-`ecommerce_order` et `ecommerce_mcp` aujourd'hui). Ce script ne s'exécute que sur un volume vide : après y avoir ajouté une base,
+les crée au premier démarrage (`keycloak`, `ecommerce_cart`, `ecommerce_catalog`
+et `ecommerce_order` aujourd'hui). Ce script ne s'exécute que sur un volume vide : après y avoir ajouté une base,
 `docker compose down -v && docker compose up -d`.
 
 **Les services applicatifs** sont déclarés derrière le profil `services` :
@@ -117,10 +117,9 @@ transite en dehors du navigateur. Les deux ajoutent l'audience
 `ecommerce-api` dans le jeton d'accès, que la gateway (`T04` #84) pourra
 vérifier.
 
-Un troisième client, **`user-service`**, est confidentiel et sans aucun flux
-utilisateur : seul son compte de service sert, pour appeler l'Admin API de
-Keycloak (`U04` #91). Son secret n'est pas dans le fichier, qui ne porte que
-l'expression `${USER_SERVICE_CLIENT_SECRET:set-me}` — voir « Collaborateurs ».
+Le client confidentiel à compte de service, pour l'Admin API de Keycloak,
+viendra avec `U04` (#91) : il porte un secret, il n'a donc rien à faire dans un
+fichier versionné.
 
 ### Rôles
 
@@ -231,14 +230,13 @@ où personne ne lira jamais rien.
 | Module | Domaine | Issues | Port | État |
 |---|---|---|---|---|
 | `common-lib` | Librairie partagée (contrat d'erreur HTTP, événements Kafka) | `T01`, `K02` | — | en place |
-| `common-test` | Outillage de test partagé (tests d'intégration Kafka) | `K04` | — | en place |
 | `cart-service` | Panier | `P*` | 8083 | en place |
-| `catalog-service` | Catalogue, stock, avis | `C*` | 8081 | référentiels (`C05`) et modèle produits (`C01`) en place, API produits à venir |
-| `user-service` | Utilisateurs, adresses, collaborateurs | `U*` | 8082 | comptes clients (`U01`) et collaborateurs (`U04`) en place |
+| `catalog-service` | Catalogue, stock, avis | `C*` | 8081 | référentiels en place (`C05`) |
+| `user-service` | Utilisateurs, adresses, collaborateurs | `U*` | 8082 | à créer |
 | `order-service` | Commandes, paiement, livraison | `O*` | 8084 | en place |
 | `notification-service` | Notifications, alertes, emails | `N*` | 8085 | à créer |
 | `support-service` | SAV, tickets | `S*` | 8086 | à créer |
-| `mcp-service` | Serveur MCP | `M*` | 8087 | jetons en place (`M03`), serveur à venir (`M01`) |
+| `mcp-service` | Serveur MCP | `M*` | 8087 | transport HTTP en place (`M01`, [guide](docs/mcp.md)) |
 | `api-gateway` | Routage, validation JWT, CORS | `T04` | 8080 | en place |
 
 Les ports sont réservés ici pour éviter les collisions en local et dans le
@@ -281,7 +279,7 @@ Règles, toutes en **409** avec un message lisible :
   autre retire la marque du précédent ; le taux par défaut ne peut être ni
   démarqué ni supprimé. Chaque écriture verrouille la table `tva` : deux
   requêtes simultanées ne laissent pas deux défauts ;
-- une entrée encore référencée par une autre table (un produit) ne se
+- une entrée encore référencée par une autre table (un produit, demain) ne se
   supprime pas : la contrainte de la base répond 409, pas 500.
 
 **Le schéma est géré par Flyway**, une première dans le dépôt :
@@ -530,10 +528,7 @@ endroit où une route devient publique, authentifiée ou réservée au back-offi
 | `/api/admin/catalog/**` | `catalog-service` | rôle `collaborator` ou `admin` |
 | `/api/orders/**` | `order-service` | jeton valide |
 | `/api/admin/orders/**` | `order-service` | rôle `collaborator` ou `admin` |
-| `/api/admin/users/collaborators/**` | `user-service` | rôle **`admin`** seulement |
-| `/api/admin/users/**` (le reste) | `user-service` | rôle `collaborator` ou `admin` |
-| `/api/admin/mcp/**` | `mcp-service` | rôle **`admin`** seulement |
-| `/mcp`, `/mcp/**`, `/sse` | `mcp-service` | **jeton MCP**, vérifié par `mcp-service` et non par la gateway |
+| `/api/mcp` | `mcp-service` | rôle `admin` |
 | `/actuator/health`, `/actuator/info` | gateway | public |
 | tout le reste | — | jeton valide : on refuse par défaut |
 
@@ -570,9 +565,8 @@ curl -i http://localhost:8080/api/orders    # 401 sans jeton
 
 Par défaut elle valide les jetons contre
 `http://localhost:8180/realms/ecommerce` et route vers `localhost:8081`,
-`localhost:8082`, `localhost:8083`, `localhost:8084` et `localhost:8087`. Dans
-Docker, les variables de `compose.yaml` remplacent ces valeurs — en particulier
-les clés de signature, qui se récupèrent sur l'URL
+`localhost:8083` et `localhost:8084`. Dans Docker, les variables de `compose.yaml` remplacent ces
+valeurs — en particulier les clés de signature, qui se récupèrent sur l'URL
 interne de Keycloak alors que l'issuer reste l'URL frontale.
 
 ### CORS
@@ -742,8 +736,8 @@ chaque Pull Request vers `dev` ou `main`, et à chaque merge sur ces branches.
 | Changement | Modules construits |
 |---|---|
 | `<module>/**` | ce module |
-| `common-lib/**`, `common-test/**`, `docker/kafka/create-topics.sh`, `pom.xml` racine, `mvnw`, `.mvn/**`, la CI elle-même | tous |
-| le reste : README, `compose.yaml`, le reste de `docker/`, `Dockerfile`… | aucun |
+| `common-lib/**`, `pom.xml` racine, `mvnw`, `.mvn/**`, la CI elle-même | tous |
+| le reste : README, `compose.yaml`, `docker/`, `Dockerfile`… | aucun |
 
 Chaque job construit d'abord les modules dont il dépend (POM parent,
 `common-lib`) sans leurs tests, puis lance `./mvnw -pl <module> verify`. Sans
@@ -763,11 +757,11 @@ d'eux bloquerait toute PR qui ne le touche pas.
 En cas d'échec, les rapports Surefire du module sont joints au run
 (`surefire-<module>`, gardés 7 jours).
 
-Les tests d'intégration Kafka tournent dans la CI sur un vrai broker (voir
-« Tests d'intégration Kafka ») : Docker y est disponible, et ils **échouent**
-au lieu d'être ignorés s'il ne l'est pas.
-
 ## Ajouter un service
+
+Exception : `mcp-service` utilise un parent Boot 3.5 propre pour les exigences
+de Spring AI, sans modifier le couple Boot/Cloud de la gateway ; voir le
+[guide MCP](docs/mcp.md). Il n'utilise pas `common-lib`, de base SQL ou de Kafka.
 
 1. Créer le dossier `<domaine>-service`, en anglais et en kebab-case.
 2. Son `pom.xml` hérite de `com.ecommerce:ecommerce-parent` avec
@@ -974,74 +968,6 @@ docker exec ecommerce-kafka /opt/kafka/bin/kafka-console-consumer.sh \
   --property print.key=true --property print.headers=true
 ```
 
-## Tests d'intégration Kafka
-
-Les tests unitaires appellent un listener à la main. Les tests d'intégration
-vérifient le reste : le vrai broker, la sérialisation JSON partagée, le rejeu
-et le DLT. `common-test` (`K04`) en fournit le modèle.
-
-```java
-class OrderPaidKafkaIntegrationTest extends KafkaIntegrationTest {
-
-    @Autowired KafkaTemplate<Object, Object> kafkaTemplate;
-
-    @Test
-    void shouldEmptyTheCartOfAPaidOrder() throws Exception {
-        kafkaTemplate.send("order.paid", event.orderNumber(), event).get();
-
-        await().atMost(Duration.ofSeconds(30))
-               .untilAsserted(() -> assertThat(itemsInCartOf(userId)).isZero());
-    }
-}
-```
-
-L'exemple complet, à recopier pour un autre consommateur :
-`cart-service/src/test/java/com/ecommerce/cart/kafka/OrderPaidKafkaIntegrationTest.java`.
-Il couvre le cas nominal, la **double publication** d'un même paiement, et un
-**message illisible** qui part au DLT sans bloquer le message suivant.
-
-Pour l'utiliser dans un service, une dépendance de test suffit :
-
-```xml
-<dependency>
-    <groupId>com.ecommerce</groupId>
-    <artifactId>common-test</artifactId>
-    <version>${project.version}</version>
-    <scope>test</scope>
-</dependency>
-```
-
-| Élément | Rôle |
-|---|---|
-| `KafkaIntegrationTest` | classe de base : `@SpringBootTest` branché sur le broker de test |
-| `KafkaTestContainer` | **un seul broker** pour tous les tests de la JVM, démarré au premier usage |
-| `KafkaTestRecords` | publier des octets bruts (producteur défaillant), attendre un message dans un DLT |
-
-**Le broker de test est celui de la prod** : même image `apache/kafka:3.8.1`,
-auto-création des topics **coupée**, et topics créés en jouant
-**`docker/kafka/create-topics.sh` lui-même**, pas une copie de sa liste. Un
-topic oublié dans le script fait donc échouer le test, comme il ferait échouer
-le service déployé. C'est aussi pourquoi un changement de ce script relance
-tous les modules dans la CI.
-
-**Le broker est partagé** par toutes les classes de test : ses topics et les
-offsets des consumer groups persistent d'un test à l'autre. Chaque test
-utilise donc ses propres identifiants (clé, numéro de commande, utilisateur) ;
-`KafkaTestRecords.awaitDeadLetter` filtre le DLT par clé pour cette raison.
-
-**Le rejeu garde ses 3 tentatives**, mais attend 100 ms au lieu de 1 s : un
-test qui envoie un message au DLT prend une seconde, pas sept.
-
-**Docker est requis.** Sans lui, ces tests sont **ignorés** sur un poste, pour
-que le build passe quand même, et **échouent dans la CI** (variable `CI=true`,
-posée par GitHub Actions) : un environnement cassé ne doit pas produire un
-build vert qui n'a rien testé. `CI=true ./mvnw verify` reproduit ce
-comportement en local.
-
-Testcontainers est en **1.21** et non dans la version du BOM Spring Boot
-(1.19.8) : celle-ci parle l'API Docker 1.32, que Docker Engine 29 refuse, et
-les tests étaient alors tous ignorés sans bruit.
-
 ## Conventions
 
 - **Git, commits, branches, PR, tags** : `CLAUDE.md` est la source unique. Rien
@@ -1056,6 +982,6 @@ les tests étaient alors tous ignorés sans bruit.
 | Sujet | Issue |
 |---|---|
 | Correspondance UUID Keycloak → identifiant applicatif | `U01` #58 |
+| Client confidentiel pour l'Admin API Keycloak | `U04` #91 |
 | Dockerfile du front web | `D01` #87, après `T06` #11 |
 | Manifests Kubernetes | `D04` #88 |
-| Serveur MCP (Spring AI) et ses tools, derrière le filtre des jetons | `M01` #50, `M02` #51 |

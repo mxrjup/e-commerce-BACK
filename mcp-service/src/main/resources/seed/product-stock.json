@@ -1,0 +1,7 @@
+[
+  { "sku": "LOG-GPRO", "name": "Logitech G Pro", "stock": 24 },
+  { "sku": "LOG-GPRO-X", "name": "Logitech G Pro X", "stock": 8 },
+  { "sku": "RAZ-DEATHADDER-V3", "name": "Razer DeathAdder V3", "stock": 15 },
+  { "sku": "SONY-WH1000XM5", "name": "Sony WH-1000XM5", "stock": 0 },
+  { "sku": "KEY-K2", "name": "Keychron K2", "stock": 12 }
+]

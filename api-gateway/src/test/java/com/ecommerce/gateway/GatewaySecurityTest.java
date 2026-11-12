@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.oauth2.jwt.BadJwtException;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.ReactiveJwtDecoder;
@@ -19,9 +20,11 @@ import org.springframework.test.web.reactive.server.WebTestClient;
 import reactor.core.publisher.Mono;
 
 import java.io.IOException;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -307,6 +310,77 @@ class GatewaySecurityTest {
                 .header("Access-Control-Request-Method", "POST")
                 .exchange()
                 .expectStatus().isForbidden();
+    }
+
+    @Test
+    void shouldForwardMcpRequestsAndSessionHeaders() throws InterruptedException {
+        givenTokenFor("an-admin", "admin");
+        String initialize = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\"}";
+        BACKEND.enqueue(new MockResponse().setResponseCode(200)
+                .addHeader("Content-Type", "text/event-stream")
+                .addHeader("Mcp-Session-Id", "new-session")
+                .setBody("event: message\ndata: {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{}}\n\n"));
+        webTestClient.post().uri("/mcp")
+                .header("Authorization", "Bearer test-token")
+                .header("Content-Type", "application/json")
+                .header("Accept", "application/json, text/event-stream")
+                .header("MCP-Protocol-Version", "2025-03-26")
+                .bodyValue(initialize).exchange()
+                .expectStatus().isOk()
+                .expectHeader().valueEquals("Mcp-Session-Id", "new-session")
+                .expectHeader().contentTypeCompatibleWith("text/event-stream")
+                .expectBody(String.class).value(body -> assertThat(body).contains("\"result\":{}"));
+
+        RecordedRequest forwarded = BACKEND.takeRequest(5, TimeUnit.SECONDS);
+        assertThat(forwarded).isNotNull();
+        assertThat(forwarded.getPath()).isEqualTo("/mcp");
+        assertThat(forwarded.getBody().readUtf8()).isEqualTo(initialize);
+        assertThat(forwarded.getHeader("MCP-Protocol-Version")).isEqualTo("2025-03-26");
+        assertThat(forwarded.getHeader("Accept")).contains("text/event-stream");
+
+        for (HttpMethod method : List.of(HttpMethod.GET, HttpMethod.DELETE)) {
+            BACKEND.enqueue(ok());
+            webTestClient.method(method).uri("/mcp")
+                    .header("Authorization", "Bearer test-token")
+                    .header("Mcp-Session-Id", "new-session")
+                    .header("Last-Event-ID", "event-42").exchange()
+                    .expectStatus().isOk();
+            RecordedRequest sessionRequest = BACKEND.takeRequest(5, TimeUnit.SECONDS);
+            assertThat(sessionRequest).isNotNull();
+            assertThat(sessionRequest.getMethod()).isEqualTo(method.name());
+            assertThat(sessionRequest.getPath()).isEqualTo("/mcp");
+            assertThat(sessionRequest.getHeader("Mcp-Session-Id")).isEqualTo("new-session");
+            assertThat(sessionRequest.getHeader("Last-Event-ID")).isEqualTo("event-42");
+        }
+    }
+
+    @Test
+    void shouldKeepMcpResponsesOpenBeyondTheGlobalTimeout() throws InterruptedException {
+        givenTokenFor("an-admin", "admin");
+        BACKEND.enqueue(new MockResponse().setResponseCode(200)
+                .addHeader("Content-Type", "text/event-stream")
+                .setHeadersDelay(11, TimeUnit.SECONDS)
+                .setBody("event: message\ndata: {}\n\n"));
+        webTestClient.mutate().responseTimeout(Duration.ofSeconds(20)).build()
+                .get().uri("/mcp")
+                .header("Authorization", "Bearer test-token")
+                .header("Accept", "text/event-stream")
+                .exchange().expectStatus().isOk();
+        assertThat(BACKEND.takeRequest(5, TimeUnit.SECONDS)).isNotNull();
+    }
+
+    @Test
+    void shouldAllowMcpHeadersInBrowserPreflights() {
+        webTestClient.options().uri("/mcp")
+                .header("Origin", "http://localhost:5173")
+                .header("Access-Control-Request-Method", "POST")
+                .header("Access-Control-Request-Headers",
+                        "authorization,content-type,mcp-session-id,mcp-protocol-version,last-event-id")
+                .exchange().expectStatus().isOk()
+                .expectHeader().value("Access-Control-Allow-Headers",
+                        value -> assertThat(value.toLowerCase()).contains("mcp-session-id", "mcp-protocol-version"))
+                .expectHeader().value("Access-Control-Expose-Headers",
+                        value -> assertThat(value).contains("Mcp-Session-Id"));
     }
 
     private void givenTokenFor(String subject, String... realmRoles) {

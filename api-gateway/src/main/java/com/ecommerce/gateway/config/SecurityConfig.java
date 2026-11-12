@@ -53,6 +53,7 @@ public class SecurityConfig {
     public SecurityWebFilterChain mcpTransportFilterChain(ServerHttpSecurity http) {
         return http
                 .securityMatcher(ServerWebExchangeMatchers.pathMatchers("/mcp", "/mcp/**", "/sse"))
+                .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .csrf(ServerHttpSecurity.CsrfSpec::disable)
                 .formLogin(ServerHttpSecurity.FormLoginSpec::disable)
                 .httpBasic(ServerHttpSecurity.HttpBasicSpec::disable)
@@ -115,8 +116,9 @@ public class SecurityConfig {
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         // X-Session-Token porte le panier invite : le navigateur doit pouvoir
         // l'envoyer et le relire.
-        configuration.setAllowedHeaders(List.of("Authorization", "Content-Type", "X-Session-Token"));
-        configuration.setExposedHeaders(List.of("X-Session-Token"));
+        configuration.setAllowedHeaders(List.of("Authorization", "Content-Type", "X-Session-Token",
+                "Accept", "Mcp-Session-Id", "MCP-Protocol-Version", "Last-Event-ID"));
+        configuration.setExposedHeaders(List.of("X-Session-Token", "Mcp-Session-Id"));
         configuration.setAllowCredentials(true);
         configuration.setMaxAge(Duration.ofHours(1));
 

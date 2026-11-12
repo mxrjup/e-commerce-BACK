@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.context.ActiveProfiles;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -36,7 +37,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * Tokens end to end: issued by the back-office API, stored by the real Flyway
  * schema, then presented by an MCP client to the transport endpoints.
  */
-@SpringBootTest
+@ActiveProfiles({"test", "token-filter-test"})
+@SpringBootTest(properties = "spring.ai.mcp.server.enabled=false")
 @AutoConfigureMockMvc
 class McpTokenApiTest {
 

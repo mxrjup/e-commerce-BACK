@@ -5,6 +5,23 @@ spring:
   application:
     name: mcp-service
 
+  ai:
+    mcp:
+      server:
+        name: ecommerce-mcp
+        version: 0.0.1
+        type: SYNC
+        protocol: STREAMABLE
+        stdio: false
+        capabilities:
+          tool: true
+          resource: false
+          prompt: false
+          completion: false
+        streamable-http:
+          mcp-endpoint: /mcp
+          keep-alive-interval: 30s
+
   datasource:
     url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:ecommerce_mcp}}
     username: ${SPRING_DATASOURCE_USERNAME:postgres}
@@ -31,6 +48,16 @@ spring:
 mcp:
   security:
     protected-paths: /sse,/mcp,/mcp/*
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
 
 ---
 spring:

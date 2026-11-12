@@ -11,6 +11,7 @@ import java.util.Map;
  * Stands for the endpoints of the Spring AI MCP Server, which M01 (#50) adds:
  * same paths, and a « tool » that checks its scope the way M02 tools will.
  */
+@org.springframework.context.annotation.Profile("token-filter-test")
 @RestController
 class FakeMcpTransport {
 

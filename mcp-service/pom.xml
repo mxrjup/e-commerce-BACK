@@ -3,19 +3,53 @@
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
-
     <parent>
-        <groupId>com.ecommerce</groupId>
-        <artifactId>ecommerce-parent</artifactId>
-        <version>0.0.1-SNAPSHOT</version>
-        <relativePath>../pom.xml</relativePath>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>3.5.16</version>
+        <relativePath/>
     </parent>
-
+    <groupId>com.ecommerce</groupId>
     <artifactId>mcp-service</artifactId>
+    <version>0.0.1-SNAPSHOT</version>
     <name>mcp-service</name>
-    <description>Microservice MCP (jetons d'acces et, avec M01, serveur MCP)</description>
+    <description>Serveur Spring AI MCP en Streamable HTTP, derriere la gateway</description>
+
+    <properties>
+        <java.version>21</java.version>
+        <spring-ai.version>1.1.8</spring-ai.version>
+    </properties>
+
+    <!-- Independent Boot parent: inheriting the root would retain its managed
+         Boot 3.3 dependencies even with a local Boot BOM import. The module
+         remains part of the root reactor without upgrading the gateway. -->
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>org.springframework.ai</groupId>
+                <artifactId>spring-ai-bom</artifactId>
+                <version>${spring-ai.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
 
     <dependencies>
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-starter-mcp-server-webmvc</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+
         <!-- Librairie commune : contrat d'erreur HTTP partage -->
         <dependency>
             <groupId>com.ecommerce</groupId>
@@ -38,7 +72,7 @@
 
         <!--
           Le schema est versionne par Flyway, pas genere par Hibernate, comme dans
-          catalog-service. M01 (#50) ajoutera ici le starter Spring AI MCP Server.
+          catalog-service. Le transport Spring AI utilise les jetons M03.
         -->
         <dependency>
             <groupId>org.flywaydb</groupId>
@@ -60,6 +94,11 @@
             <groupId>com.h2database</groupId>
             <artifactId>h2</artifactId>
             <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <optional>true</optional>
         </dependency>
     </dependencies>
 
