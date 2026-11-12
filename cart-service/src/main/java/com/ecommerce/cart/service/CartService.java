@@ -1,6 +1,9 @@
 package com.ecommerce.cart.service;
 
+import com.ecommerce.cart.client.CatalogClient;
+import com.ecommerce.cart.client.CatalogVariantResponse;
 import com.ecommerce.cart.dto.AddCartItemRequest;
+import com.ecommerce.cart.dto.CartItemResponse;
 import com.ecommerce.cart.dto.CartResponse;
 import com.ecommerce.cart.entity.Cart;
 import com.ecommerce.cart.entity.CartItem;
@@ -12,6 +15,9 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -22,6 +28,7 @@ public class CartService {
 
     private final CartRepository cartRepository;
     private final ProcessedOrderEventRepository processedOrderEventRepository;
+    private final CatalogClient catalogClient;
 
     public Cart getOrCreateCart(Long userId, String sessionToken) {
 
@@ -46,7 +53,56 @@ public class CartService {
      */
     public CartResponse getCart(Long userId, String sessionToken) {
         Cart cart = getOrCreateCart(userId, sessionToken);
-        return CartResponse.fromEntity(cart);
+        return buildEnrichedCartResponse(cart);
+    }
+
+    private CartResponse buildEnrichedCartResponse(Cart cart) {
+        List<Long> variantIds = cart.getItems().stream()
+                .map(CartItem::getVariantId)
+                .toList();
+
+        Map<Long, CatalogVariantResponse> variantsById = new HashMap<>();
+        catalogClient.getVariants(variantIds)
+                .forEach(variant -> variantsById.put(variant.id(), variant));
+
+        List<CartItemResponse> items = cart.getItems().stream()
+                .map(item -> enrichCartItem(item, variantsById))
+                .toList();
+
+        CartResponse response = CartResponse.fromEntity(cart);
+        response.setItems(items);
+        response.setTotalItems(items.stream().mapToInt(CartItemResponse::getQuantity).sum());
+        return response;
+    }
+
+    private CartItemResponse enrichCartItem(CartItem item, Map<Long, CatalogVariantResponse> variantsById) {
+        CatalogVariantResponse variant = variantsById.get(item.getVariantId());
+
+        if (variant == null) {
+            return CartItemResponse.builder()
+                    .id(item.getId())
+                    .variantId(item.getVariantId())
+                    .quantity(item.getQuantity())
+                    .productName(null)
+                    .unitPriceExclTax(null)
+                    .vatRate(null)
+                    .available(false)
+                    .imageUrl(null)
+                    .status("UNAVAILABLE")
+                    .build();
+        }
+
+        return CartItemResponse.builder()
+                .id(item.getId())
+                .variantId(item.getVariantId())
+                .quantity(item.getQuantity())
+                .productName(variant.designation())
+                .unitPriceExclTax(variant.unitPriceExclTax())
+                .vatRate(variant.vatRate())
+                .available(variant.available())
+                .imageUrl(variant.imageUrl())
+                .status(variant.available() ? "AVAILABLE" : "UNAVAILABLE")
+                .build();
     }
 
     public CartResponse addItem(Long userId, String sessionToken, AddCartItemRequest request) {
@@ -65,7 +121,7 @@ public class CartService {
         }
 
         Cart savedCart = cartRepository.save(cart);
-        return CartResponse.fromEntity(savedCart);
+        return buildEnrichedCartResponse(savedCart);
     }
 
 
@@ -84,7 +140,7 @@ public class CartService {
         }
 
         Cart savedCart = cartRepository.save(cart);
-        return CartResponse.fromEntity(savedCart);
+        return buildEnrichedCartResponse(savedCart);
     }
 
 
@@ -99,7 +155,7 @@ public class CartService {
         cart.removeItem(item);
 
         Cart savedCart = cartRepository.save(cart);
-        return CartResponse.fromEntity(savedCart);
+        return buildEnrichedCartResponse(savedCart);
     }
 
 
@@ -109,7 +165,7 @@ public class CartService {
         cart.clearItems();
 
         Cart savedCart = cartRepository.save(cart);
-        return CartResponse.fromEntity(savedCart);
+        return buildEnrichedCartResponse(savedCart);
     }
 
 
@@ -150,7 +206,7 @@ public class CartService {
         cartRepository.delete(guestCart);
         Cart savedCart = cartRepository.save(userCart);
 
-        return CartResponse.fromEntity(savedCart);
+        return buildEnrichedCartResponse(savedCart);
     }
 
 }

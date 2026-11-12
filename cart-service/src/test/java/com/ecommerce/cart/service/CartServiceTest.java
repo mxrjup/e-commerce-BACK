@@ -1,5 +1,7 @@
 package com.ecommerce.cart.service;
 
+import com.ecommerce.cart.client.CatalogClient;
+import com.ecommerce.cart.client.CatalogVariantResponse;
 import com.ecommerce.cart.dto.AddCartItemRequest;
 import com.ecommerce.cart.dto.CartResponse;
 import com.ecommerce.cart.entity.Cart;
@@ -9,11 +11,14 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.math.BigDecimal;
 import java.util.Optional;
 
-
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.when;
 
 @SpringBootTest
 @Transactional
@@ -24,6 +29,77 @@ class CartServiceTest {
 
     @Autowired
     private CartRepository cartRepository;
+
+    @MockBean
+    private CatalogClient catalogClient;
+
+    @Test
+    @DisplayName("Cart items are enriched with current catalog data on read")
+    void testGetCart_EnrichesItemsWithCatalogData() {
+        cartService.addItem(null, "my-session-token", new AddCartItemRequest(100L, 2));
+        when(catalogClient.getVariants(java.util.List.of(100L))).thenReturn(java.util.List.of(new CatalogVariantResponse(
+                100L,
+                "Produit enrichi",
+                new BigDecimal("29.90"),
+                new BigDecimal("20.00"),
+                true,
+                "https://cdn.example.com/produit.png"
+        )));
+
+        CartResponse response = cartService.getCart(null, "my-session-token");
+
+        assertEquals(1, response.getItems().size());
+        assertEquals("Produit enrichi", response.getItems().get(0).getProductName());
+        assertEquals(new BigDecimal("29.90"), response.getItems().get(0).getUnitPriceExclTax());
+        assertEquals(new BigDecimal("20.00"), response.getItems().get(0).getVatRate());
+        assertTrue(response.getItems().get(0).getAvailable());
+        assertEquals("https://cdn.example.com/produit.png", response.getItems().get(0).getImageUrl());
+    }
+
+    @Test
+    @DisplayName("Missing catalog variant is exposed as unavailable instead of stale data")
+    void testGetCart_MissingCatalogVariant_IsUnavailable() {
+        cartService.addItem(null, "my-session-token", new AddCartItemRequest(999L, 1));
+        when(catalogClient.getVariant(999L)).thenReturn(Optional.empty());
+
+        CartResponse response = cartService.getCart(null, "my-session-token");
+
+        assertEquals(1, response.getItems().size());
+        assertFalse(response.getItems().get(0).getAvailable());
+        assertEquals("UNAVAILABLE", response.getItems().get(0).getStatus());
+    }
+
+    @Test
+    @DisplayName("Cart read batches catalog lookups for all cart lines in one call")
+    void testGetCart_UsesBatchCatalogLookup() {
+        cartService.addItem(null, "my-session-token", new AddCartItemRequest(100L, 2));
+        cartService.addItem(null, "my-session-token", new AddCartItemRequest(200L, 1));
+
+        when(catalogClient.getVariants(java.util.List.of(100L, 200L))).thenReturn(java.util.List.of(
+                new CatalogVariantResponse(
+                        100L,
+                        "Produit enrichi",
+                        new BigDecimal("29.90"),
+                        new BigDecimal("20.00"),
+                        true,
+                        "https://cdn.example.com/produit.png"
+                ),
+                new CatalogVariantResponse(
+                        200L,
+                        "Autre produit",
+                        new BigDecimal("49.90"),
+                        new BigDecimal("20.00"),
+                        false,
+                        "https://cdn.example.com/autre.png"
+                )
+        ));
+
+        CartResponse response = cartService.getCart(null, "my-session-token");
+
+        assertEquals(2, response.getItems().size());
+        assertEquals("Produit enrichi", response.getItems().get(0).getProductName());
+        assertEquals("UNAVAILABLE", response.getItems().get(1).getStatus());
+    }
 
     @Test
     @DisplayName("Guest without token: creates and persists a new guest cart in database")
@@ -39,14 +115,27 @@ class CartServiceTest {
 
 
     @Test
-    @DisplayName("Add a new item to cart and persist in database")
+    @DisplayName("Add a new item returns a catalog-enriched response")
     void testAddItem_New() {
+        when(catalogClient.getVariants(java.util.List.of(100L))).thenReturn(java.util.List.of(new CatalogVariantResponse(
+                100L,
+                "Produit enrichi",
+                new BigDecimal("29.90"),
+                new BigDecimal("20.00"),
+                true,
+                "https://cdn.example.com/produit.png"
+        )));
+
         AddCartItemRequest request = new AddCartItemRequest(100L, 2);
         CartResponse response = cartService.addItem(null, "my-session-token", request);
 
         assertEquals(1, response.getItems().size());
         assertEquals(100L, response.getItems().get(0).getVariantId());
         assertEquals(2, response.getItems().get(0).getQuantity());
+        assertEquals("Produit enrichi", response.getItems().get(0).getProductName());
+        assertEquals(new BigDecimal("29.90"), response.getItems().get(0).getUnitPriceExclTax());
+        assertEquals(new BigDecimal("20.00"), response.getItems().get(0).getVatRate());
+        assertTrue(response.getItems().get(0).getAvailable());
         assertEquals(2, response.getTotalItems());
     }
 

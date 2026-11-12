@@ -1,6 +1,10 @@
 server:
   port: 8083
 
+app:
+  catalog-service:
+    url: ${CATALOG_SERVICE_URL:http://localhost:8081}
+
 spring:
   application:
     name: cart-service

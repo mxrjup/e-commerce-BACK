@@ -6,6 +6,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import com.ecommerce.users.dto.UserProfileResponseDto;
+import com.ecommerce.users.dto.UserProfileUpdateRequestDto;
 
 import java.util.List;
 import java.util.Map;
@@ -49,5 +51,31 @@ public class UserService {
             return roles.contains("admin");
         }
         return false;
+    }
+
+    @Transactional(readOnly = true)
+    public UserProfileResponseDto getUserProfile(Jwt jwt) {
+        User user = syncUserFromJwt(jwt);
+        return mapToProfileDto(user);
+    }
+
+    @Transactional
+    public UserProfileResponseDto updateUserProfile(Jwt jwt, UserProfileUpdateRequestDto dto) {
+        User user = syncUserFromJwt(jwt);
+        user.setFirstName(dto.getFirstName());
+        user.setLastName(dto.getLastName());
+        user.setPhone(dto.getPhone());
+        return mapToProfileDto(userRepository.save(user));
+    }
+
+    private UserProfileResponseDto mapToProfileDto(User user) {
+        return UserProfileResponseDto.builder()
+                .id(user.getId())
+                .authProviderId(user.getAuthProviderId())
+                .email(user.getEmail())
+                .firstName(user.getFirstName())
+                .lastName(user.getLastName())
+                .phone(user.getPhone())
+                .build();
     }
 }
