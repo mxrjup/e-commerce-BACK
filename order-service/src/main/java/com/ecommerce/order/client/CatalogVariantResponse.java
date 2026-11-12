@@ -16,6 +16,6 @@ public record CatalogVariantResponse(
             String designation,
             BigDecimal unitPriceExclTax,
             BigDecimal vatRate) {
-        this(id, designation, unitPriceExclTax, vatRate, BigDecimal.ZERO, 0, true);
+        this(id, designation, unitPriceExclTax, vatRate, BigDecimal.ZERO, Integer.MAX_VALUE, true);
     }
 }
