@@ -233,7 +233,7 @@ où personne ne lira jamais rien.
 | `common-lib` | Librairie partagée (contrat d'erreur HTTP, événements Kafka) | `T01`, `K02` | — | en place |
 | `common-test` | Outillage de test partagé (tests d'intégration Kafka) | `K04` | — | en place |
 | `cart-service` | Panier | `P*` | 8083 | en place |
-| `catalog-service` | Catalogue, stock, avis | `C*` | 8081 | référentiels en place (`C05`) |
+| `catalog-service` | Catalogue, stock, avis | `C*` | 8081 | référentiels (`C05`) et modèle produits (`C01`) en place, API produits à venir |
 | `user-service` | Utilisateurs, adresses, collaborateurs | `U*` | 8082 | comptes clients (`U01`) et collaborateurs (`U04`) en place |
 | `order-service` | Commandes, paiement, livraison | `O*` | 8084 | en place |
 | `notification-service` | Notifications, alertes, emails | `N*` | 8085 | à créer |
@@ -281,7 +281,7 @@ Règles, toutes en **409** avec un message lisible :
   autre retire la marque du précédent ; le taux par défaut ne peut être ni
   démarqué ni supprimé. Chaque écriture verrouille la table `tva` : deux
   requêtes simultanées ne laissent pas deux défauts ;
-- une entrée encore référencée par une autre table (un produit, demain) ne se
+- une entrée encore référencée par une autre table (un produit) ne se
   supprime pas : la contrainte de la base répond 409, pas 500.
 
 **Le schéma est géré par Flyway**, une première dans le dépôt :
@@ -308,6 +308,49 @@ curl -s localhost:8081/api/catalog/categories
 > deux tournent sur la même machine, `CATALOG_PORT` (voir `.env.example`)
 > publie le catalogue ailleurs dans le Docker Compose ; en dehors de Docker,
 > `-Dspring-boot.run.arguments=--server.port=8091`.
+
+## Catalogue : produits et variantes
+
+`C01` (#3) ajoute le modèle des produits par la migration `V2`. Le **produit**
+est la fiche générique (« Logitech MX Keys S ») ; la **variante** est l'unité
+réellement vendue (« MX Keys S, AZERTY, blanc »), avec son SKU, ses prix, son
+poids et son stock. **Le panier et les commandes pointent toujours une
+variante**, jamais un produit.
+
+| Table | Contenu |
+|---|---|
+| `produit` | titre, slug, description HTML, statut (`BROUILLON`, `PUBLIE`, `ARCHIVE`), marque, catégorie, TVA |
+| `variante` | SKU unique, prix d'achat, de vente et remisé **HT**, écotaxe, poids (kg), stock, seuil d'alerte |
+| `attribut`, `valeur_attribut` | ce qui fait varier un produit (Couleur, Layout clavier…) et ses valeurs (Noir, AZERTY…) |
+| `variante_valeur` | les valeurs d'une variante |
+| `variante_image` | les photos d'une variante, `position` 1 = miniature principale |
+| `produit_specification` | caractéristiques communes aux variantes (Garantie, Connectique…) |
+| `produit_univers` | les univers d'un produit |
+
+La base porte les règles qui ne doivent jamais être contournées : **le stock ne
+passe pas sous zéro** (pas de survente, même avec deux commandes simultanées),
+un prix remisé est inférieur au prix de vente, un SKU est unique. Supprimer un
+produit supprime ses variantes, spécifications et images ; une marque, une
+catégorie ou un univers encore utilisé par un produit ne se supprime pas (409).
+`V2` ajoute aussi `actif` sur `tva` : un taux inactif n'est plus proposé pour un
+nouveau produit, mais reste valable pour ceux qui l'utilisent.
+
+**Jeu de démonstration.** Avec le profil `demo`, un catalogue vide se remplit
+au démarrage depuis `catalog-service/src/main/resources/demo/catalogue-demo.json` :
+19 produits et 30 variantes (claviers, souris, casques, écrans, portables,
+composants), avec des promotions, des stocks bas, une rupture, un brouillon et
+un produit archivé. Le chargement ne fait rien si le catalogue a déjà un
+produit : un redémarrage ne crée pas de doublon. Le Docker Compose active ce
+profil ; la production, jamais.
+
+```bash
+./mvnw -pl catalog-service spring-boot:run -Dspring-boot.run.profiles=local-h2,demo
+```
+
+Les tests rejouent aussi les migrations et le jeu de démonstration sur un vrai
+**PostgreSQL 16** (Testcontainers, `PostgresSchemaTest`) : H2 accepte des types
+de colonnes que Hibernate refuse sur PostgreSQL. Sans Docker, ce test est
+ignoré en local, mais il échoue en CI (`CI=true`).
 
 ## Collaborateurs (Keycloak)
 

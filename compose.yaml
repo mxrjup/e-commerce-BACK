@@ -240,6 +240,9 @@ services:
       DB_NAME: ${CATALOG_DB_NAME:-ecommerce_catalog}
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-postgres}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      # Charge le jeu de demonstration au premier demarrage, catalogue vide
+      # (C01) : jamais en production, ou ce profil n'est pas active.
+      SPRING_PROFILES_ACTIVE: demo
     ports:
       # 8081 est aussi le port par defaut du serveur Expo : CATALOG_PORT permet
       # de publier le catalogue ailleurs sur l'hote quand les deux tournent.
