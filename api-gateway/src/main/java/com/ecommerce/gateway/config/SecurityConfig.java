@@ -80,6 +80,9 @@ public class SecurityConfig {
                         // Stripe doit pouvoir appeler le webhook sans bearer token,
                         // mais uniquement pour cette route et ce verbe.
                         .pathMatchers(HttpMethod.POST, "/api/orders/webhook").permitAll()
+                        // Permettre aux utilisateurs non connectés de pouvoir voir les frais de port,
+                        // ainsi que les mentions légales.
+                        .pathMatchers(HttpMethod.GET, "/api/v1/store-settings").permitAll()
                         // Les comptes du back-office (U04) : creer un collaborateur
                         // ou changer un role est reserve aux administrateurs. Avant
                         // la regle generale, la premiere qui correspond l'emporte.
