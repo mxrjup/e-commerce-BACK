@@ -55,6 +55,14 @@ spring:
             - Path=/mcp,/mcp/**,/sse
           metadata:
             response-timeout: -1
+        - id: user-service-store-settings
+          uri: ${USER_SERVICE_URL:http://localhost:8082}
+          predicates:
+            - Path=/api/v1/store-settings/**
+        - id: user-service-admin-store-settings
+          uri: ${USER_SERVICE_URL:http://localhost:8082}
+          predicates:
+            - Path=/api/admin/store-settings/**
       httpclient:
         connect-timeout: 2000
         response-timeout: 10s
