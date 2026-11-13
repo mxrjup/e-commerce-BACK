@@ -26,10 +26,18 @@ public class StripePaymentMethodService {
     private final StripeClient stripeClient;
 
     public String savePaymentMethod(Long userId, String paymentMethodId) {
+        return savePaymentMethod(userId, paymentMethodId, false);
+    }
+
+    public String savePaymentMethod(Long userId, String paymentMethodId, boolean setDefault) {
         Optional<SavedPaymentMethod> existing = savedPaymentMethodRepository.findByUserIdAndStripePaymentMethodId(userId, paymentMethodId);
         if (existing.isPresent()) {
+            SavedPaymentMethod savedMethod = existing.get();
+            if (setDefault) {
+                setDefaultPaymentMethod(userId, savedMethod.getStripePaymentMethodId());
+            }
             log.info("Reusing saved Stripe payment method {} for user {}", paymentMethodId, userId);
-            return existing.get().getStripePaymentMethodId();
+            return savedMethod.getStripePaymentMethodId();
         }
 
         CustomerProfile profile = customerProfileRepository.findByUserId(userId)
@@ -53,8 +61,12 @@ public class StripePaymentMethodService {
             savedPaymentMethod.setStripePaymentMethodId(paymentMethod.getId());
             savedPaymentMethod.setBrand(paymentMethod.getCard() != null ? paymentMethod.getCard().getBrand() : null);
             savedPaymentMethod.setLast4(paymentMethod.getCard() != null ? paymentMethod.getCard().getLast4() : null);
-            savedPaymentMethod.setDefaultPaymentMethod(false);
+            savedPaymentMethod.setDefaultPaymentMethod(setDefault);
             savedPaymentMethodRepository.save(savedPaymentMethod);
+
+            if (setDefault) {
+                setDefaultPaymentMethod(userId, paymentMethod.getId());
+            }
 
             log.info("Attached Stripe payment method {} to customer {} for user {}", paymentMethod.getId(), profile.getStripeCustomerId(), userId);
             return paymentMethod.getId();

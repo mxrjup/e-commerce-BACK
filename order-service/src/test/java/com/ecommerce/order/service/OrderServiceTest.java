@@ -197,6 +197,36 @@ class OrderServiceTest {
     }
 
     @Test
+    @DisplayName("Checkout stores the selected payment method and enables future usage on the payment intent")
+    void testCheckout_UsesSelectedPaymentMethodAndFutureUsage() throws Exception {
+        when(catalogClient.getVariant(50L)).thenReturn(
+            new CatalogVariantResponse(50L, "Clavier mécanique", new BigDecimal("80.00"), new BigDecimal("20.00"), new BigDecimal("60.00"), 12, true)
+        );
+        when(stripeCustomerService.getOrCreateStripeCustomer(1L, null)).thenReturn("cus_account_456");
+
+        Session mockSession = mock(Session.class);
+        when(mockSession.getId()).thenReturn("cs_test_future_usage");
+        when(mockSession.getUrl()).thenReturn("https://checkout.stripe.com/pay/cs_test_future_usage");
+
+        ArgumentCaptor<SessionCreateParams> paramsCaptor = ArgumentCaptor.forClass(SessionCreateParams.class);
+        when(stripeClient.checkout().sessions().create(paramsCaptor.capture())).thenReturn(mockSession);
+
+        CheckoutRequest request = new CheckoutRequest(
+            100L,
+            DeliveryMode.STANDARD,
+            List.of(new CheckoutItemRequest(50L, 1)),
+            "pm_selected_123"
+        );
+
+        orderService.checkout(1L, null, request);
+
+        SessionCreateParams params = paramsCaptor.getValue();
+        assertEquals("pm_selected_123", params.getMetadata().get("paymentMethodId"));
+        assertEquals(SessionCreateParams.PaymentIntentData.SetupFutureUsage.ON_SESSION,
+            params.getPaymentIntentData().getSetupFutureUsage());
+    }
+
+    @Test
     @DisplayName("Checkout sends exact line amount to Stripe avoiding any cent rounding drift")
     void testCheckout_ExactStripeAmountRounding() throws Exception {
         Session mockSession = mock(Session.class);
