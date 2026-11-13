@@ -8,6 +8,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import com.ecommerce.users.dto.UserProfileResponseDto;
 import com.ecommerce.users.dto.UserProfileUpdateRequestDto;
+import com.ecommerce.users.dto.UserAdminResponseDto;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 
 import java.util.List;
 import java.util.Map;
@@ -70,6 +73,23 @@ public class UserService {
 
     private UserProfileResponseDto mapToProfileDto(User user) {
         return UserProfileResponseDto.builder()
+                .id(user.getId())
+                .authProviderId(user.getAuthProviderId())
+                .email(user.getEmail())
+                .firstName(user.getFirstName())
+                .lastName(user.getLastName())
+                .phone(user.getPhone())
+                .build();
+    }
+
+    @Transactional(readOnly = true)
+    public Page<UserAdminResponseDto> getUsers(String search, Pageable pageable) {
+        return userRepository.searchUsers(search, pageable)
+                .map(this::mapToAdminDto);
+    }
+
+    private UserAdminResponseDto mapToAdminDto(User user) {
+        return UserAdminResponseDto.builder()
                 .id(user.getId())
                 .authProviderId(user.getAuthProviderId())
                 .email(user.getEmail())
