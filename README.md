@@ -385,6 +385,65 @@ d'achat peut y figurer, et jamais dans l'API publique.
 - `purchasePriceExclTax` sert à figer le prix d'achat dans la commande, pour les
   marges.
 
+### API publique des produits
+
+`C02` (#4) : ce que la vitrine affiche. Public via la gateway, comme tout
+`GET /api/catalog/**` : parcourir le catalogue ne demande pas de compte.
+
+| Chemin | Réponse |
+|---|---|
+| `GET /api/catalog/products` | une page de cartes produits |
+| `GET /api/catalog/products/{slug}` | la fiche d'un produit, ou 404 |
+
+Paramètres de la liste, tous facultatifs :
+
+| Paramètre | Effet |
+|---|---|
+| `category` | slug d'une catégorie, **sous-catégories comprises** (`peripheriques` donne claviers, souris et casques) |
+| `brand`, `universe` | slug d'une marque, d'un univers |
+| `sort` | `newest` (par défaut), `price-asc`, `price-desc`, `name` |
+| `page`, `size` | page à partir de 0, 20 produits par défaut, 50 au plus |
+
+Un slug inconnu donne une page vide ; une page, une taille ou un tri invalide
+répond 400. Les filtres multiples, la fourchette de prix et la recherche par
+mots relèvent de la recherche facettée (`C03` #42).
+
+```json
+{
+  "content": [{
+    "id": 2, "slug": "logitech-g915-tkl", "title": "Logitech G915 TKL",
+    "brand": { "name": "Logitech", "slug": "logitech" },
+    "category": { "name": "Claviers", "slug": "claviers" },
+    "priceInclTax": 200.11, "regularPriceInclTax": 230.11,
+    "imageUrl": null, "available": true, "variantCount": 2
+  }],
+  "page": 0, "size": 20, "totalElements": 17, "totalPages": 1
+}
+```
+
+La fiche ajoute la description HTML, les univers, la TVA, les spécifications,
+les **attributs** pour choisir une variante (`{"name": "Couleur", "values":
+["Noir", "Blanc"]}`) et chaque **variante** : ses valeurs, son prix, son prix
+barré, sa part d'écotaxe, `available`, `lowStock` et ses photos.
+
+- **Seuls les produits publiés** apparaissent : un brouillon ou un produit
+  archivé répond 404, comme un slug inconnu.
+- **Les prix sont TTC, pour un article**, écotaxe comprise : c'est exactement
+  ce que le checkout facture pour un article. Une carte montre le prix de la
+  variante la moins chère ; `regularPriceInclTax` est le prix barré quand
+  elle est en promotion.
+- **Les totaux ne se calculent pas côté front.** Pour plusieurs articles,
+  `order-service` arrondit la TVA sur le sous-total de la ligne (prix HT ×
+  quantité), ce qui peut différer d'un centime du prix TTC unitaire ×
+  quantité : 3 articles à 10,03 € HT coûtent 36,11 € TTC, pas 3 × 12,04 €.
+  Un total affiché vient du panier ou du checkout.
+- **Ni le stock exact ni le prix d'achat** ne sont exposés : `available` dit
+  si la variante est en stock, `lowStock` si elle est au seuil d'alerte ou en
+  dessous (« plus que quelques exemplaires »).
+- La liste se calcule en deux temps : les ids de la page, filtrés et triés
+  en base (le tri par prix compare la variante la moins chère de chaque
+  produit), puis ces produits. Une page de 17 produits coûte 7 requêtes.
+
 ## Collaborateurs (Keycloak)
 
 `user-service` (`U04` #91) gère les comptes du back-office **dans Keycloak et
