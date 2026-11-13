@@ -5,7 +5,9 @@ import java.math.RoundingMode;
 import java.time.Instant;
 import java.time.Year;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
@@ -389,10 +391,10 @@ public class OrderService {
         }
 
         try {
-            PaymentIntent paymentIntent = PaymentIntent.retrieve(paymentIntentId);
+            PaymentIntent paymentIntent = stripeClient.paymentIntents().retrieve(paymentIntentId);
             return paymentIntent != null ? paymentIntent.getPaymentMethod() : null;
         } catch (Exception e) {
-            log.warn("Impossible de récupérer le payment_method Stripe pour le PaymentIntent {} : {}",
+            log.warn("Impossible de récupérer le payment_method Stripe pour le PaymentIntent {} via StripeClient : {}",
                 paymentIntentId, e.getMessage());
             return null;
         }
@@ -448,6 +450,14 @@ public class OrderService {
             session.setInvoice(sessionNode.has("invoice") && !sessionNode.get("invoice").isNull()
                 ? sessionNode.get("invoice").asText()
                 : null);
+
+            if (sessionNode.has("metadata") && sessionNode.get("metadata") != null && sessionNode.get("metadata").isObject()) {
+                JsonNode metadataNode = sessionNode.get("metadata");
+                Map<String, String> metadata = new HashMap<>();
+                metadataNode.fields().forEachRemaining(entry -> metadata.put(entry.getKey(), entry.getValue().asText()));
+                session.setMetadata(metadata);
+            }
+
             return session;
         } catch (Exception e) {
             log.warn("Fallback Stripe payload JSON invalid : {}", e.getMessage());
