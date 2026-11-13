@@ -6,11 +6,14 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 
 /**
- * The prices the storefront shows, including VAT.
+ * The prices the storefront shows, including VAT, for one unit.
  *
- * <p>Same rounding as order-service for an order line ({@code OrderItem}):
- * the VAT amount is rounded to the cent, then added to the price excluding
- * VAT. The storefront therefore shows exactly what the checkout charges.
+ * <p>The VAT amount is rounded to the cent, then added to the price excluding
+ * VAT: for one unit, this is exactly what order-service charges for the line
+ * ({@code OrderItem}). For several units, order-service rounds the VAT on the
+ * line subtotal (price excluding VAT times quantity), which can differ by a
+ * cent from this unit price times the quantity. Totals therefore come from
+ * the cart or the checkout, never from a front multiplying this price.
  */
 public final class Prices {
 

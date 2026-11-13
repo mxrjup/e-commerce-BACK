@@ -55,6 +55,10 @@ public class ProductCatalogService {
         if (size < 1 || size > MAX_SIZE) {
             throw new BadRequestException("size must be between 1 and " + MAX_SIZE);
         }
+        // L'offset page * size est un int pour Hibernate : au-dela, il deborderait en negatif.
+        if ((long) page * size > Integer.MAX_VALUE) {
+            throw new BadRequestException("page is too large");
+        }
         ProductSearchRepository.Sort order = sort == null || sort.isBlank()
                 ? ProductSearchRepository.Sort.NEWEST : SORTS.get(sort);
         if (order == null) {

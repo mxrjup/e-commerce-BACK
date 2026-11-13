@@ -164,6 +164,10 @@ class ProductApiTest {
             mockMvc.perform(get(PRODUCTS).param("size", "0")).andExpect(status().isBadRequest());
             mockMvc.perform(get(PRODUCTS).param("size", "51")).andExpect(status().isBadRequest());
             mockMvc.perform(get(PRODUCTS).param("page", "-1")).andExpect(status().isBadRequest());
+            // page * size depasserait un int : refuse en 400, pas un 500.
+            mockMvc.perform(get(PRODUCTS).param("page", "50000000").param("size", "50"))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.message").value("page is too large"));
             mockMvc.perform(get(PRODUCTS).param("sort", "popular"))
                     .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.message").value("sort must be one of newest, price-asc, price-desc, name"));

@@ -430,10 +430,15 @@ barré, sa part d'écotaxe, `available`, `lowStock` et ses photos.
 
 - **Seuls les produits publiés** apparaissent : un brouillon ou un produit
   archivé répond 404, comme un slug inconnu.
-- **Les prix sont TTC**, écotaxe comprise, avec **le même arrondi que
-  `order-service`** : la vitrine affiche exactement ce que le checkout
-  fera payer. Une carte montre le prix de la variante la moins chère ;
-  `regularPriceInclTax` est le prix barré quand elle est en promotion.
+- **Les prix sont TTC, pour un article**, écotaxe comprise : c'est exactement
+  ce que le checkout facture pour un article. Une carte montre le prix de la
+  variante la moins chère ; `regularPriceInclTax` est le prix barré quand
+  elle est en promotion.
+- **Les totaux ne se calculent pas côté front.** Pour plusieurs articles,
+  `order-service` arrondit la TVA sur le sous-total de la ligne (prix HT ×
+  quantité), ce qui peut différer d'un centime du prix TTC unitaire ×
+  quantité : 3 articles à 10,03 € HT coûtent 36,11 € TTC, pas 3 × 12,04 €.
+  Un total affiché vient du panier ou du checkout.
 - **Ni le stock exact ni le prix d'achat** ne sont exposés : `available` dit
   si la variante est en stock, `lowStock` si elle est au seuil d'alerte ou en
   dessous (« plus que quelques exemplaires »).
