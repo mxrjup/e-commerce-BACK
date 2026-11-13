@@ -7,7 +7,6 @@ import com.ecommerce.order.entity.DeliveryMode;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
-import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
@@ -15,7 +14,6 @@ import lombok.Setter;
 @Getter
 @Setter
 @NoArgsConstructor
-@AllArgsConstructor
 public class CheckoutRequest {
 
     @NotNull(message = "shippingAddressId is required")
@@ -28,5 +26,18 @@ public class CheckoutRequest {
     @Valid
     private List<CheckoutItemRequest> items;
 
-    
+    private String paymentMethodId;
+
+    public CheckoutRequest(Long shippingAddressId, DeliveryMode deliveryMode, List<CheckoutItemRequest> items) {
+        this.shippingAddressId = shippingAddressId;
+        this.deliveryMode = deliveryMode;
+        this.items = items;
+    }
+
+    public CheckoutRequest(Long shippingAddressId, DeliveryMode deliveryMode, List<CheckoutItemRequest> items, String paymentMethodId) {
+        this.shippingAddressId = shippingAddressId;
+        this.deliveryMode = deliveryMode;
+        this.items = items;
+        this.paymentMethodId = paymentMethodId;
+    }
 }
