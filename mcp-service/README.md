@@ -20,7 +20,55 @@ MCP handler in the Java `prompts` package when its behavior is defined.
 Keep tools focused on named operations; use resources for read-only context and
 prompts for reusable message templates. Creating a package or template does
 not expose a capability. Prompt and resource capabilities remain disabled until
-their handlers are implemented. The default profile has an empty tool list.
+their handlers are implemented. The default profile exposes six live read tools.
+
+## Live read tools
+
+All tools check the scope on the current MCP request before contacting a service.
+They publish an explicit `inputSchema`, an `outputSchema` generated from typed
+Java records, structured results, and read-only/idempotent/non-destructive hints.
+Schema generation uses Spring AI's
+[`@McpTool(generateOutputSchema = true)`](https://docs.spring.io/spring-ai/reference/api/mcp/mcp-annotations-server.html).
+
+| Tool | Required arguments | Scope | Result |
+| --- | --- | --- | --- |
+| `get_catalog_variant` | `id`: positive integer | `catalog:read` | Variant with live price, availability and stock |
+| `get_catalog_variants` | `ids`: 1–100 positive integers | `catalog:read` | `{items: [Variant]}` |
+| `get_order` | `id`: positive integer | `orders:read` | Order and its lines |
+| `list_user_orders` | `userId`: positive integer | `orders:read` | `{items: [Order]}` |
+| `get_user` | `id`: positive local integer ID | `users:read` | ID, email, firstName, lastName |
+| `list_users` | `page`: zero-based integer; `size`: 1–100 | `users:read` | items, page, size, totalElements, totalPages |
+
+`list_user_orders` also accepts optional `status`: `NEW`, `IN_PREPARATION`,
+`SHIPPED`, `DELIVERED`, `CANCELLED`. The existing order API returns all orders
+for that user; it does not offer pagination. Variant IDs refer to the catalogue
+database, not demo SKUs. Single-record lookups of missing records produce tool
+errors; batch variant reads omit unknown IDs and collapse duplicates, matching
+the catalogue API. Upstream errors are sanitized. No MCP bearer token is forwarded downstream.
+
+Configure `CATALOG_SERVICE_URL` (default `http://localhost:8081`),
+`ORDER_SERVICE_URL` (`http://localhost:8084`) and `USER_SERVICE_URL`
+(`http://localhost:8082`). Compose sets the internal service URLs.
+Configure the same non-empty secret `MCP_USERS_READ_KEY` on MCP and user-service;
+without it user reads fail closed. Store it in deployment secrets, not source
+control. The dedicated GET-only `/api/internal/users` routes validate
+`X-MCP-Service-Key` and bypass JWT user provisioning. Keep service traffic on
+the private network (use TLS when crossing a trust boundary); the gateway does
+not expose these internal routes. Catalogue and order reads use their existing
+internal-network trust model. Each call has a 3-second connection timeout and
+a 5-second read timeout, with redirects disabled.
+
+Example `tools/call`:
+
+```json
+{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"list_users","arguments":{"page":0,"size":20}}}
+```
+
+Authenticate the MCP transport with a scoped `mcp_...` token. Live user tools
+read existing local accounts only: they never synchronize Keycloak or create
+profiles. Purchase prices, authentication provider IDs, addresses and arbitrary
+upstream fields are excluded from their respective read contracts. The optional
+`demo-stock` tools remain separate and explicitly return seed data.
 
 ## Demo product stock
 

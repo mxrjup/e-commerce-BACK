@@ -279,6 +279,7 @@ services:
       # L'Admin API (U04) se joint aussi par le reseau Docker.
       KEYCLOAK_ADMIN_SERVER_URL: http://keycloak:8080
       KEYCLOAK_ADMIN_CLIENT_SECRET: ${USER_SERVICE_CLIENT_SECRET:-set-me}
+      MCP_USERS_READ_KEY: ${MCP_USERS_READ_KEY:-}
     ports:
       - "8082:8082"
     depends_on:
@@ -331,6 +332,10 @@ services:
     environment:
       SERVER_PORT: 8087
       SPRING_PROFILES_ACTIVE: ${MCP_PROFILES:-demo-stock}
+      CATALOG_SERVICE_URL: http://catalog-service:8081
+      ORDER_SERVICE_URL: http://order-service:8084
+      USER_SERVICE_URL: http://user-service:8082
+      MCP_USERS_READ_KEY: ${MCP_USERS_READ_KEY:-}
       DB_HOST: postgres
       DB_PORT: 5432
       DB_NAME: ${MCP_DB_NAME:-ecommerce_mcp}

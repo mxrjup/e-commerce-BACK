@@ -46,6 +46,11 @@ spring:
 # couvrent SSE et Streamable HTTP du serveur Spring AI (M01) : voir
 # McpSecurityProperties.
 mcp:
+  services:
+    catalog-url: ${CATALOG_SERVICE_URL:http://localhost:8081}
+    orders-url: ${ORDER_SERVICE_URL:http://localhost:8084}
+    users-url: ${USER_SERVICE_URL:http://localhost:8082}
+    users-key: ${MCP_USERS_READ_KEY:}
   security:
     protected-paths: /sse,/mcp,/mcp/*
 

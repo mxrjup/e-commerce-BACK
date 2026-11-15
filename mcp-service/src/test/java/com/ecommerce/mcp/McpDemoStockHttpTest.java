@@ -39,10 +39,13 @@ class McpDemoStockHttpTest extends McpHttpTest {
     @Override
     protected void assertTools(JsonNode tools) {
         assertThat(tools.isArray()).isTrue();
-        assertThat(tools.size()).isEqualTo(2);
+        assertThat(tools.size()).isEqualTo(8);
         assertThat(tools.toString()).contains("get_product_stock", "get_pending_shipments");
         tools.forEach(tool -> {
-            assertThat(tool.path("inputSchema").path("required").toString()).contains("productName");
+            if (tool.path("name").asText().equals("get_product_stock")
+                    || tool.path("name").asText().equals("get_pending_shipments")) {
+                assertThat(tool.path("inputSchema").path("required").toString()).contains("productName");
+            }
             assertThat(tool.path("annotations").path("readOnlyHint").asBoolean()).isTrue();
         });
     }
