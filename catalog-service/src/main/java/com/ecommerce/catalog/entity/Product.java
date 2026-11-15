@@ -15,6 +15,7 @@ import jakarta.persistence.OrderBy;
 import jakarta.persistence.Table;
 import lombok.Getter;
 import lombok.Setter;
+import org.hibernate.annotations.BatchSize;
 
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
@@ -57,8 +58,10 @@ public class Product extends AuditedEntity {
     @JoinColumn(name = "tva_id", nullable = false)
     private VatRate vatRate;
 
+    /** Loaded for a whole page of products at once when a list needs them. */
     @OneToMany(mappedBy = "product", cascade = CascadeType.ALL, orphanRemoval = true)
     @OrderBy("id")
+    @BatchSize(size = 50)
     private List<Variant> variants = new ArrayList<>();
 
     @OneToMany(mappedBy = "product", cascade = CascadeType.ALL, orphanRemoval = true)

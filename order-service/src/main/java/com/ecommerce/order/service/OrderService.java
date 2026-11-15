@@ -5,7 +5,9 @@ import java.math.RoundingMode;
 import java.time.Instant;
 import java.time.Year;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
@@ -27,13 +29,16 @@ import com.ecommerce.order.dto.OrderResponse;
 import com.ecommerce.order.entity.Order;
 import com.ecommerce.order.entity.OrderItem;
 import com.ecommerce.order.entity.OrderStatus;
+import com.ecommerce.order.entity.SavedPaymentMethod;
 import com.ecommerce.order.repository.OrderRepository;
+import com.ecommerce.order.repository.SavedPaymentMethodRepository;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.stripe.StripeClient;
 import com.stripe.exception.SignatureVerificationException;
 import com.stripe.model.Event;
 import com.stripe.model.Invoice;
+import com.stripe.model.PaymentIntent;
 import com.stripe.model.checkout.Session;
 import com.stripe.net.Webhook;
 import com.stripe.param.checkout.SessionCreateParams;
@@ -55,6 +60,9 @@ public class OrderService {
     private final StripeProperties stripeProperties;
     private final KafkaTemplate<String, Object> kafkaTemplate;
     private final CatalogClient catalogClient;
+    private final StripeCustomerService stripeCustomerService;
+    private final StripePaymentMethodService stripePaymentMethodService;
+    private final SavedPaymentMethodRepository savedPaymentMethodRepository;
 
     @Value("${app.kafka.topics.order-paid:order.paid}")
     private String orderPaidTopic;
@@ -178,7 +186,7 @@ public class OrderService {
         order.setTotalInclTax(totalTtc);
         orderRepository.save(order);
 
-        Session session = createStripeSession(order, shippingFee);
+        Session session = createStripeSession(order, shippingFee, request.getPaymentMethodId());
 
         order.setStripeSessionId(session.getId());
         orderRepository.save(order);
@@ -192,14 +200,37 @@ public class OrderService {
             .build();
     }
 
-    private Session createStripeSession(Order order, BigDecimal shippingFee) {
+    private Session createStripeSession(Order order, BigDecimal shippingFee, String paymentMethodId) {
         try {
+            String stripeCustomerId = stripeCustomerService.getOrCreateStripeCustomer(order.getUserId(), null);
+
             SessionCreateParams.Builder params = SessionCreateParams.builder()
                 .setMode(SessionCreateParams.Mode.PAYMENT)
                 .setSuccessUrl(stripeProperties.getSuccessUrl())
                 .setCancelUrl(stripeProperties.getCancelUrl())
+                .setCustomer(stripeCustomerId)
                 .addPaymentMethodType(SessionCreateParams.PaymentMethodType.CARD)
+                .setPaymentIntentData(
+                    SessionCreateParams.PaymentIntentData.builder()
+                        .setSetupFutureUsage(SessionCreateParams.PaymentIntentData.SetupFutureUsage.ON_SESSION)
+                        .build()
+                )
                 .putMetadata("orderNumber", order.getOrderNumber());
+
+            if (paymentMethodId != null && !paymentMethodId.isBlank()) {
+                params.putMetadata("paymentMethodId", paymentMethodId);
+            }
+
+            if (order.getSessionToken() != null && !order.getSessionToken().isBlank()) {
+                params.putMetadata("sessionToken", order.getSessionToken());
+            }
+
+            if (order.getUserId() != null) {
+                Optional<SavedPaymentMethod> defaultMethod = savedPaymentMethodRepository.findByUserId(order.getUserId()).stream()
+                    .filter(SavedPaymentMethod::isDefaultPaymentMethod)
+                    .findFirst();
+                defaultMethod.ifPresent(method -> params.putMetadata("defaultPaymentMethodId", method.getStripePaymentMethodId()));
+            }
 
             for (OrderItem item : order.getItems()) {
                 long subTotalCents = item.getSubTotalInclTax()
@@ -327,10 +358,46 @@ public class OrderService {
             order.setInvoiceUrl(invoiceUrl);
         }
 
+        String paymentMethodId = resolvePaymentMethodId(session);
+        if (paymentMethodId != null && !paymentMethodId.isBlank()) {
+            try {
+                stripePaymentMethodService.savePaymentMethod(order.getUserId(), paymentMethodId, true);
+                log.info("Méthode de paiement Stripe {} enregistrée pour l'utilisateur {} après paiement de la commande {}",
+                    paymentMethodId, order.getUserId(), order.getOrderNumber());
+            } catch (Exception e) {
+                log.warn("Impossible d'enregistrer la carte Stripe {} pour l'utilisateur {} après paiement de la commande {} : {}",
+                    paymentMethodId, order.getUserId(), order.getOrderNumber(), e.getMessage());
+            }
+        }
+
         order.setStatus(OrderStatus.IN_PREPARATION);
         orderRepository.save(order);
 
         log.info("Evènements OrderPaid publié sur Kafka pour la commande {} ", order.getOrderNumber());
+    }
+
+    private String resolvePaymentMethodId(Session session) {
+        if (session == null) {
+            return null;
+        }
+
+        if (session.getMetadata() != null && session.getMetadata().containsKey("paymentMethodId")) {
+            return session.getMetadata().get("paymentMethodId");
+        }
+
+        String paymentIntentId = session.getPaymentIntent();
+        if (paymentIntentId == null || paymentIntentId.isBlank()) {
+            return null;
+        }
+
+        try {
+            PaymentIntent paymentIntent = stripeClient.paymentIntents().retrieve(paymentIntentId);
+            return paymentIntent != null ? paymentIntent.getPaymentMethod() : null;
+        } catch (Exception e) {
+            log.warn("Impossible de récupérer le payment_method Stripe pour le PaymentIntent {} via StripeClient : {}",
+                paymentIntentId, e.getMessage());
+            return null;
+        }
     }
 
     private String resolveInvoiceUrl(Session session) {
@@ -371,12 +438,26 @@ public class OrderService {
 
             Session session = new Session();
             session.setId(sessionNode.has("id") && !sessionNode.get("id").isNull() ? sessionNode.get("id").asText() : null);
+            session.setCustomer(sessionNode.has("customer") && !sessionNode.get("customer").isNull()
+                ? sessionNode.get("customer").asText()
+                : null);
+            session.setPaymentIntent(sessionNode.has("payment_intent") && !sessionNode.get("payment_intent").isNull()
+                ? sessionNode.get("payment_intent").asText()
+                : null);
             session.setPaymentStatus(sessionNode.has("payment_status") && !sessionNode.get("payment_status").isNull()
                 ? sessionNode.get("payment_status").asText()
                 : null);
             session.setInvoice(sessionNode.has("invoice") && !sessionNode.get("invoice").isNull()
                 ? sessionNode.get("invoice").asText()
                 : null);
+
+            if (sessionNode.has("metadata") && sessionNode.get("metadata") != null && sessionNode.get("metadata").isObject()) {
+                JsonNode metadataNode = sessionNode.get("metadata");
+                Map<String, String> metadata = new HashMap<>();
+                metadataNode.fields().forEachRemaining(entry -> metadata.put(entry.getKey(), entry.getValue().asText()));
+                session.setMetadata(metadata);
+            }
+
             return session;
         } catch (Exception e) {
             log.warn("Fallback Stripe payload JSON invalid : {}", e.getMessage());

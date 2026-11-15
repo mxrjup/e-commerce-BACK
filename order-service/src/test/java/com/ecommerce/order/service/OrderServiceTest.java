@@ -24,6 +24,7 @@ import com.ecommerce.order.entity.OrderStatus;
 import com.ecommerce.order.repository.OrderRepository;
 import com.stripe.StripeClient;
 import com.stripe.model.Invoice;
+import com.stripe.model.PaymentIntent;
 import com.stripe.model.checkout.Session;
 import com.stripe.param.checkout.SessionCreateParams;
 import java.math.BigDecimal;
@@ -38,6 +39,7 @@ import javax.crypto.spec.SecretKeySpec;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.Answers;
+import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -64,6 +66,12 @@ class OrderServiceTest {
 
     @MockBean
     private CatalogClient catalogClient;
+
+    @MockBean
+    private StripeCustomerService stripeCustomerService;
+
+    @MockBean
+    private StripePaymentMethodService stripePaymentMethodService;
 
     @Autowired
     private StripeProperties stripeProperties;
@@ -162,6 +170,64 @@ class OrderServiceTest {
         assertEquals(new BigDecimal("84.00"), response.getTotalInclTax());
         assertEquals("cs_test_123456", response.getStripeSessionId());
         assertEquals("https://checkout.stripe.com/pay/cs_test_123456", response.getStripeCheckoutUrl());
+    }
+
+    @Test
+    @DisplayName("Checkout binds Stripe session to the account Stripe customer")
+    void testCheckout_UsesStoredStripeCustomer() throws Exception {
+        when(catalogClient.getVariant(10L)).thenReturn(
+            new CatalogVariantResponse(10L, "Souris gamer", new BigDecimal("50.00"), new BigDecimal("20.00"))
+        );
+        when(stripeCustomerService.getOrCreateStripeCustomer(1L, null)).thenReturn("cus_account_123");
+
+        Session mockSession = mock(Session.class);
+        when(mockSession.getId()).thenReturn("cs_test_customer_bound");
+        when(mockSession.getUrl()).thenReturn("https://checkout.stripe.com/pay/cs_test_customer_bound");
+
+        ArgumentCaptor<SessionCreateParams> paramsCaptor = ArgumentCaptor.forClass(SessionCreateParams.class);
+        when(stripeClient.checkout().sessions().create(paramsCaptor.capture())).thenReturn(mockSession);
+
+        CheckoutRequest request = new CheckoutRequest(
+            100L,
+            DeliveryMode.STANDARD,
+            List.of(new CheckoutItemRequest(10L, 1))
+        );
+
+        orderService.checkout(1L, null, request);
+
+        SessionCreateParams params = paramsCaptor.getValue();
+        assertEquals("cus_account_123", params.getCustomer());
+        verify(stripeCustomerService).getOrCreateStripeCustomer(1L, null);
+    }
+
+    @Test
+    @DisplayName("Checkout stores the selected payment method and enables future usage on the payment intent")
+    void testCheckout_UsesSelectedPaymentMethodAndFutureUsage() throws Exception {
+        when(catalogClient.getVariant(50L)).thenReturn(
+            new CatalogVariantResponse(50L, "Clavier mécanique", new BigDecimal("80.00"), new BigDecimal("20.00"), new BigDecimal("60.00"), 12, true)
+        );
+        when(stripeCustomerService.getOrCreateStripeCustomer(1L, null)).thenReturn("cus_account_456");
+
+        Session mockSession = mock(Session.class);
+        when(mockSession.getId()).thenReturn("cs_test_future_usage");
+        when(mockSession.getUrl()).thenReturn("https://checkout.stripe.com/pay/cs_test_future_usage");
+
+        ArgumentCaptor<SessionCreateParams> paramsCaptor = ArgumentCaptor.forClass(SessionCreateParams.class);
+        when(stripeClient.checkout().sessions().create(paramsCaptor.capture())).thenReturn(mockSession);
+
+        CheckoutRequest request = new CheckoutRequest(
+            100L,
+            DeliveryMode.STANDARD,
+            List.of(new CheckoutItemRequest(50L, 1)),
+            "pm_selected_123"
+        );
+
+        orderService.checkout(1L, null, request);
+
+        SessionCreateParams params = paramsCaptor.getValue();
+        assertEquals("pm_selected_123", params.getMetadata().get("paymentMethodId"));
+        assertEquals(SessionCreateParams.PaymentIntentData.SetupFutureUsage.ON_SESSION,
+            params.getPaymentIntentData().getSetupFutureUsage());
     }
 
     @Test
@@ -316,6 +382,52 @@ class OrderServiceTest {
         OrderItem item = savedOrder.getItems().get(0);
         assertEquals(new BigDecimal("60.00"), item.getPurchasePriceExclTax());
         assertEquals(new BigDecimal("180.00"), item.getSubTotalExclTax());
+    }
+
+    @Test
+    @DisplayName("Webhook resolves payment method from injected Stripe client when metadata is absent")
+    void testHandleStripeWebhook_ResolvesPaymentMethodViaInjectedClient() throws Exception {
+        Order order = new Order();
+        order.setUserId(1L);
+        order.setOrderNumber("CMD-2026-000105");
+        order.setStatus(OrderStatus.NEW);
+        order.setStripeSessionId("cs_test_payment_intent_123");
+        orderRepository.save(order);
+
+        String payload = "{\"id\":\"evt_130\",\"object\":\"event\",\"api_version\":\"" + com.stripe.Stripe.API_VERSION + "\",\"type\":\"checkout.session.completed\",\"data\":{\"object\":{\"id\":\"cs_test_payment_intent_123\",\"object\":\"checkout.session\",\"payment_status\":\"paid\",\"payment_intent\":\"pi_test_123\"}}}";
+        String sigHeader = generateStripeSignature(payload, stripeProperties.getWebhookSecret());
+        when(kafkaTemplate.send(eq("order.paid"), eq("CMD-2026-000105"), any(OrderPaidEvent.class)))
+            .thenReturn(CompletableFuture.completedFuture(mock(SendResult.class)));
+
+        PaymentIntent paymentIntent = mock(PaymentIntent.class);
+        when(paymentIntent.getPaymentMethod()).thenReturn("pm_from_payment_intent");
+        when(stripeClient.paymentIntents().retrieve("pi_test_123")).thenReturn(paymentIntent);
+        when(stripePaymentMethodService.savePaymentMethod(1L, "pm_from_payment_intent", true)).thenReturn("pm_from_payment_intent");
+
+        orderService.handleStripeWebhook(payload, sigHeader);
+
+        verify(stripePaymentMethodService).savePaymentMethod(1L, "pm_from_payment_intent", true);
+    }
+
+    @Test
+    @DisplayName("Webhook keeps payment method from raw metadata when session reconstruction drops it")
+    void testHandleStripeWebhook_UsesMetadataPaymentMethodFromRawPayload() throws Exception {
+        Order order = new Order();
+        order.setUserId(1L);
+        order.setOrderNumber("CMD-2026-000106");
+        order.setStatus(OrderStatus.NEW);
+        order.setStripeSessionId("cs_test_metadata_123");
+        orderRepository.save(order);
+
+        String payload = "{\"id\":\"evt_131\",\"object\":\"event\",\"api_version\":\"" + com.stripe.Stripe.API_VERSION + "\",\"type\":\"checkout.session.completed\",\"data\":{\"object\":{\"id\":\"cs_test_metadata_123\",\"object\":\"checkout.session\",\"payment_status\":\"paid\",\"payment_intent\":\"pi_meta_123\",\"metadata\":{\"paymentMethodId\":\"pm_from_metadata\"}}}}";
+        String sigHeader = generateStripeSignature(payload, stripeProperties.getWebhookSecret());
+        when(kafkaTemplate.send(eq("order.paid"), eq("CMD-2026-000106"), any(OrderPaidEvent.class)))
+            .thenReturn(CompletableFuture.completedFuture(mock(SendResult.class)));
+        when(stripePaymentMethodService.savePaymentMethod(1L, "pm_from_metadata", true)).thenReturn("pm_from_metadata");
+
+        orderService.handleStripeWebhook(payload, sigHeader);
+
+        verify(stripePaymentMethodService).savePaymentMethod(1L, "pm_from_metadata", true);
     }
 
     @Test

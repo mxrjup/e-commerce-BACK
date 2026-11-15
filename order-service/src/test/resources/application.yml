@@ -5,6 +5,10 @@ spring:
     username: sa
     password: ""
 
+  kafka:
+    listener:
+      auto-startup: false
+
   jpa:
     hibernate:
       ddl-auto: create-drop

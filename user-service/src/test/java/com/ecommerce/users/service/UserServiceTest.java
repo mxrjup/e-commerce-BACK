@@ -10,6 +10,11 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.oauth2.jwt.Jwt;
+import com.ecommerce.users.dto.UserAdminResponseDto;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 
 import java.util.List;
 import java.util.Map;
@@ -85,5 +90,22 @@ class UserServiceTest {
         assertThat(result).isNotNull();
         assertThat(result.getId()).isEqualTo(1L);
         verify(userRepository, never()).save(any(User.class));
+    }
+
+    @Test
+    @DisplayName("Should return paginated users matching search term")
+    void getUsers_ShouldReturnPaginatedResult() {
+        User u1 = User.builder().id(1L).email("alice@test.com").firstName("Alice").build();
+        Page<User> page = new PageImpl<>(List.of(u1));
+        Pageable pageable = PageRequest.of(0, 20);
+
+        when(userRepository.searchUsers("alice", pageable)).thenReturn(page);
+
+        Page<UserAdminResponseDto> result = userService.getUsers("alice", pageable);
+
+        assertThat(result).isNotNull();
+        assertThat(result.getContent()).hasSize(1);
+        assertThat(result.getContent().get(0).getEmail()).isEqualTo("alice@test.com");
+        verify(userRepository, times(1)).searchUsers("alice", pageable);
     }
 }
