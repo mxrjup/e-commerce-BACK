@@ -50,7 +50,12 @@ public class OrderStatsRepository {
         if (!List.of("day", "week", "month").contains(granularity)) {
             throw new IllegalArgumentException("Unsupported granularity");
         }
-        return jdbc.query("SELECT date_trunc('" + granularity + "',o.date_creation) bucket, "
+        // H2's date_trunc('week', ...) follows the JVM locale, unlike PostgreSQL.
+        // ISO day-of-week makes Monday explicit on both databases.
+        String bucket = granularity.equals("week")
+                ? "date_trunc('day',o.date_creation) - (extract(isodow from o.date_creation) - 1) * INTERVAL '1' DAY"
+                : "date_trunc('" + granularity + "',o.date_creation)";
+        return jdbc.query("SELECT " + bucket + " bucket, "
                 + "COALESCE(SUM(o.total_ht),0) ht, COALESCE(SUM(o.total_ttc),0) ttc, COUNT(*) orders "
                 + "FROM commande o WHERE " + PAID + " AND " + PERIOD + " GROUP BY 1 ORDER BY 1",
                 (rs, n) -> new Bucket(rs.getObject("bucket", LocalDateTime.class).toLocalDate(),

@@ -84,6 +84,19 @@ class OrderStatsRepositoryTest {
     }
 
     @Test
+    void weeklyBucketsKeepSundayWithPreviousMondayAcrossYearBoundary() {
+        order(1, "DELIVERED", "2026-01-01", "10", "12");
+        order(2, "DELIVERED", "2026-01-04", "20", "24");
+        order(3, "DELIVERED", "2026-01-05", "30", "36");
+        var weeks = repository.curve(from, to, "week");
+        assertThat(weeks).extracting(bucket -> bucket.date().toString())
+                .containsExactly("2025-12-29", "2026-01-05");
+        assertThat(weeks.getFirst().orderCount()).isEqualTo(2);
+        assertThat(weeks.getFirst().revenueInclTax()).isEqualByComparingTo("36");
+        assertThat(weeks.getLast().orderCount()).isOne();
+    }
+
+    @Test
     void distinguishesUnknownCostsAndNullTotalsFromZero() {
         order(1, "DELIVERED", "2026-01-01", null, null);
         item(1, 11, "10", null, 2);
