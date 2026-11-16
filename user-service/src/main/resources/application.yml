@@ -1,6 +1,9 @@
 server:
   port: 8082
 
+mcp:
+  internal-read-key: ${MCP_USERS_READ_KEY:}
+
 spring:
   application:
     name: users-service

@@ -143,7 +143,17 @@ class McpHttpTest {
 
     protected void assertTools(JsonNode tools) {
         assertThat(tools.isArray()).isTrue();
-        assertThat(tools.isEmpty()).isTrue();
+        assertThat(tools.size()).isEqualTo(6);
+        assertThat(tools.toString()).contains("get_catalog_variant", "get_catalog_variants",
+                "get_order", "list_user_orders", "get_user", "list_users");
+        tools.forEach(tool -> {
+            assertThat(tool.path("inputSchema").path("type").asText()).isEqualTo("object");
+            assertThat(tool.path("inputSchema").path("required").isEmpty()).isFalse();
+            assertThat(tool.path("outputSchema").path("type").asText()).isEqualTo("object");
+            assertThat(tool.path("outputSchema").path("properties").isEmpty()).isFalse();
+            assertThat(tool.path("annotations").path("readOnlyHint").asBoolean()).isTrue();
+            assertThat(tool.path("annotations").path("destructiveHint").asBoolean()).isFalse();
+        });
     }
 
     protected HttpResponse<String> post(String session, String json) throws Exception {

@@ -568,6 +568,35 @@ compatibilité des attributs sur une variante, prix TTC, pagination, exclusions,
 accents et paramètres invalides. Les tests PostgreSQL vérifient aussi les
 trigrammes et leur index. Sans Docker, ils sont ignorés localement et échouent
 en CI ; les tests C02 et le repli H2 restent exécutés.
+### Stock
+
+`C07` (#7) : l'inventaire du back-office (écran `C20` #16), les corrections
+manuelles, les seuils d'alerte, et la baisse de stock d'une commande. Réservé
+aux rôles `collaborator` et `admin` par la gateway, comme tout `/api/admin/**`.
+
+| Chemin | Effet |
+|---|---|
+| `GET /api/admin/catalog/inventory` | les variantes, tous statuts de produit confondus, avec leur **stock exact**, leur seuil et `lowStock` ; `?lowStock=true` pour les seules alertes, `?search=` sur le titre ou le SKU, `page` et `size` (100 au plus) |
+| `POST /api/admin/catalog/variants/{id}/stock-adjustments` | `{"delta": 10}` pour une livraison, `{"delta": -1}` pour un article cassé ; renvoie la ligne à jour |
+| `PUT /api/admin/catalog/variants/{id}/alert-threshold` | `{"alertThreshold": 5}` |
+
+- **Le stock ne passe jamais sous zéro.** Chaque changement est une seule
+  requête conditionnelle (`stock = stock + delta` seulement si le résultat
+  reste positif ou nul) : un ajustement trop grand répond 409 sans rien
+  changer, et deux commandes simultanées ne prennent pas le même dernier
+  article. La contrainte `ck_variante_stock` de `V2` le garantit aussi en base.
+- **`StockService.decrement`** retire les quantités d'une commande **tout ou
+  rien** : si une variante manque de stock, aucune ne bouge. Les variantes
+  sont traitées dans l'ordre de leur id, pour que deux commandes qui partagent
+  des variantes ne se bloquent pas mutuellement. Pas d'adresse HTTP : le
+  consommateur de commandes payées (`C21` #10) l'appellera directement.
+- Vérifié sur PostgreSQL 16 : 20 achats simultanés d'une variante à 7 en
+  stock donnent exactement 7 ventes, et un stock final à 0.
+- **Pas d'historique des mouvements** pour l'instant : seul le stock actuel est
+  gardé. Une table de mouvements pourra s'ajouter par une migration si le
+  besoin apparaît.
+- La vitrine n'affiche toujours que `available` et `lowStock`, jamais le
+  stock exact.
 
 ## Collaborateurs (Keycloak)
 

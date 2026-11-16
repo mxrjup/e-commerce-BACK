@@ -37,6 +37,22 @@ import static org.mockito.BDDMockito.given;
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class GatewaySecurityTest {
 
+    @Test
+    void shouldProtectOrderStatsAndRouteOnlyBackOfficeRoles() throws InterruptedException {
+        String path = "/api/admin/orders/stats?from=2026-01-01T00:00:00Z&to=2026-02-01T00:00:00Z";
+        webTestClient.get().uri(path).exchange().expectStatus().isUnauthorized();
+        givenTokenFor("a-client", "client");
+        webTestClient.get().uri(path).header("Authorization", "Bearer test")
+                .exchange().expectStatus().isForbidden();
+        for (String role : List.of("collaborator", "admin")) {
+            givenTokenFor("staff", role);
+            BACKEND.enqueue(ok());
+            webTestClient.get().uri(path).header("Authorization", "Bearer test")
+                    .exchange().expectStatus().isOk();
+            assertThat(BACKEND.takeRequest(2, TimeUnit.SECONDS).getPath()).isEqualTo(path);
+        }
+    }
+
     private static final MockWebServer BACKEND = new MockWebServer();
 
     @Autowired
