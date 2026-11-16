@@ -1,6 +1,9 @@
 package com.ecommerce.catalog.controller;
 
 import com.ecommerce.catalog.demo.DemoCatalogLoader;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import static org.assertj.core.api.Assertions.assertThat;
 import com.ecommerce.catalog.support.CatalogTestData;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -23,6 +26,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class ProductSearchApiTest {
     protected static final String PRODUCTS = "/api/catalog/products";
     @Autowired protected MockMvc mvc;
+    @Autowired private ObjectMapper mapper;
     @Autowired protected JdbcTemplate jdbc;
     @Autowired private DemoCatalogLoader loader;
 
@@ -115,6 +119,96 @@ class ProductSearchApiTest {
         }
         mvc.perform(get(PRODUCTS + "/autocomplete").param("q", " "))
                 .andExpect(status().isOk()).andExpect(jsonPath("$", hasSize(0)));
+    }
+
+    @Test void eachReferenceAndPriceFacetIgnoresOnlyItsOwnSelection() throws Exception {
+        JsonNode baseline = facets();
+        for (String[] selection : new String[][]{{"category", "claviers", "categories"},
+                {"brand", "logitech", "brands"}, {"universe", "gaming", "universes"}}) {
+            JsonNode selected = facets(selection[0], selection[1]);
+            assertThat(selected.get(selection[2])).isEqualTo(baseline.get(selection[2]));
+        }
+        assertThat(facets("minPrice", "200", "maxPrice", "210").get("price"))
+                .isEqualTo(baseline.get("price"));
+        assertThat(facets("brand", "logitech").get("categories"))
+                .isNotEqualTo(baseline.get("categories"));
+        // Category options retain the brand filter even while ignoring the selected category.
+        assertThat(facets("brand", "logitech", "category", "claviers").get("categories"))
+                .isEqualTo(facets("brand", "logitech").get("categories"));
+        assertThat(facets("q", "g915", "minPrice", "999").get("price").get("min").decimalValue())
+                .isEqualByComparingTo("200.11");
+    }
+
+    @Test void colorCountsDoNotShrinkWhenAnotherColorIsSelected() throws Exception {
+        mvc.perform(get(PRODUCTS + "/facets").param("attribute", "Couleur:Noir"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.attributes[?(@.name == 'Couleur' && @.value == 'Blanc')].count", contains(4)));
+        JsonNode baseline = facets("brand", "logitech");
+        JsonNode selected = facets("brand", "logitech", "attribute", "Couleur:Noir");
+        assertThat(values(selected, "attributes", "Couleur"))
+                .isEqualTo(values(baseline, "attributes", "Couleur"));
+        assertThat(values(facets("attribute", "Couleur:Noir", "attribute", "Couleur:Blanc"), "attributes", "Couleur"))
+                .isEqualTo(values(facets(), "attributes", "Couleur"));
+    }
+
+    @Test void attributeFacetsKeepOtherSelectionsOnTheSameVariant() throws Exception {
+        // White is the only QWERTY variant. A product-level match alone would wrongly expose Noir.
+        jdbc.update("INSERT INTO variante_valeur(variante_id,valeur_id) SELECT v.id,a.id FROM variante v CROSS JOIN valeur_attribut a WHERE v.sku='LOGI-G915TKL-AZ-BLA' AND a.valeur='QWERTY'");
+        mvc.perform(get(PRODUCTS + "/facets").param("q", "g915")
+                .param("attribute", "Couleur:Noir", "Layout clavier:QWERTY"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.attributes[?(@.name == 'Couleur')].value", contains("Blanc")))
+                .andExpect(jsonPath("$.attributes[?(@.name == 'Layout clavier')].value", contains("AZERTY")));
+    }
+
+    @Test void specificationFacetsRemoveOnlyTheirOwnKey() throws Exception {
+        JsonNode baseline = facets("specification", "Connectique:Lightspeed, Bluetooth, USB");
+        JsonNode selected = facets("specification", "Connectique:Lightspeed, Bluetooth, USB",
+                "specification", "Garantie:inconnue");
+        assertThat(values(selected, "specifications", "Garantie"))
+                .isEqualTo(values(baseline, "specifications", "Garantie"));
+        assertThat(values(selected, "specifications", "Garantie")).hasSize(1);
+        assertThat(selected.get("brands").isEmpty()).isTrue();
+        assertThat(values(selected, "specifications", "Connectique")).isEmpty();
+    }
+
+    @Test void textSearchIncludesCategoryBrandAndFrenchAccents() throws Exception {
+        mvc.perform(get(PRODUCTS).param("q", "clavier"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.totalElements").value(3));
+        JsonNode accented = mapper.readTree(mvc.perform(get(PRODUCTS).param("q", "ÉCRAN"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        JsonNode plain = mapper.readTree(mvc.perform(get(PRODUCTS).param("q", "ecran"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        assertThat(plain).isEqualTo(accented);
+        assertThat(plain.get("totalElements").asInt()).isPositive();
+        jdbc.update("UPDATE marque SET nom='Marque éphémère' WHERE slug='logitech'");
+        mvc.perform(get(PRODUCTS).param("q", "ephemere"))
+                .andExpect(jsonPath("$.totalElements").value(4));
+        mvc.perform(get(PRODUCTS + "/facets").param("q", "ephemere"))
+                .andExpect(jsonPath("$.brands[0].count").value(4));
+    }
+
+    @Test void literalAutocompleteWorksOnBothDatabases() throws Exception {
+        mvc.perform(get(PRODUCTS + "/autocomplete").param("q", "logitech").param("limit", "2"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$", hasSize(2)))
+                .andExpect(jsonPath("$[*].brand.slug", everyItem(is("logitech"))));
+        mvc.perform(get(PRODUCTS + "/autocomplete").param("q", "%"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$", hasSize(0)));
+    }
+
+    private JsonNode facets(String... parameters) throws Exception {
+        var request = get(PRODUCTS + "/facets");
+        for (int i = 0; i < parameters.length; i += 2) request.param(parameters[i], parameters[i + 1]);
+        return mapper.readTree(mvc.perform(request).andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString());
+    }
+
+    private java.util.List<JsonNode> values(JsonNode facets, String group, String name) {
+        java.util.List<JsonNode> result = new java.util.ArrayList<>();
+        facets.get(group).forEach(value -> {
+            if (value.get("name").asText().equals(name)) result.add(value);
+        });
+        return result;
     }
 
     @Test void rejectsInvalidSearchParameters() throws Exception {

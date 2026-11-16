@@ -3,7 +3,7 @@ package com.ecommerce.catalog.dto;
 import java.math.BigDecimal;
 import java.util.List;
 
-/** Counts are distinct products among all matching results, before pagination. */
+/** Counts are distinct products before pagination, with each group excluding its own selection. */
 public record CatalogFacetsResponse(
         List<ReferenceFacet> categories, List<ReferenceFacet> brands,
         List<ReferenceFacet> universes, PriceRange price,
