@@ -31,7 +31,7 @@ public class NotificationController {
     }
 
     @GetMapping("/unread-count")
-    public ResponseEntity> getUnreadCount(@AuthenticationPrincipal Jwt jwt) {
+    public ResponseEntity getUnreadCount(@AuthenticationPrincipal Jwt jwt) {
         long count = notificationService.getUnreadCount(jwt.getSubject());
         return ResponseEntity.ok(Map.of("unreadCount", count));
     }
