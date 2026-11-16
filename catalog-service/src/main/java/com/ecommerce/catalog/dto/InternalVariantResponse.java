@@ -1,14 +1,12 @@
 package com.ecommerce.catalog.dto;
 
-import com.ecommerce.catalog.entity.AttributeValue;
 import com.ecommerce.catalog.entity.Product;
 import com.ecommerce.catalog.entity.ProductStatus;
 import com.ecommerce.catalog.entity.Variant;
 import com.ecommerce.catalog.entity.VariantImage;
+import com.ecommerce.catalog.support.Designations;
 
 import java.math.BigDecimal;
-import java.util.Comparator;
-import java.util.stream.Collectors;
 
 /**
  * A variant as the other services see it (C10): what Order freezes in an
@@ -51,7 +49,7 @@ public record InternalVariantResponse(
                 product.getId(),
                 product.getSlug(),
                 variant.getSku(),
-                designation(variant),
+                Designations.of(variant),
                 variant.currentPriceExclTax().add(ecoTax),
                 variant.getSalePriceExclTax(),
                 variant.getDiscountPriceExclTax(),
@@ -63,16 +61,5 @@ public record InternalVariantResponse(
                 product.getStatus(),
                 product.getStatus() == ProductStatus.PUBLIE && variant.getStock() > 0,
                 variant.getImages().stream().findFirst().map(VariantImage::getUrl).orElse(null));
-    }
-
-    /** The values in the order their attributes were created, so a designation never changes between calls. */
-    private static String designation(Variant variant) {
-        String values = variant.getValues().stream()
-                .sorted(Comparator.comparing((AttributeValue value) -> value.getAttribute().getId())
-                        .thenComparing(AttributeValue::getId))
-                .map(AttributeValue::getValue)
-                .collect(Collectors.joining(", "));
-        String title = variant.getProduct().getTitle();
-        return values.isEmpty() ? title : title + " - " + values;
     }
 }
