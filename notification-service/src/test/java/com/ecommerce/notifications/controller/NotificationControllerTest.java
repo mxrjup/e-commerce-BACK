@@ -3,7 +3,6 @@ package com.ecommerce.notifications.controller;
 import com.ecommerce.notifications.config.SecurityConfig;
 import com.ecommerce.notifications.dto.NotificationResponseDto;
 import com.ecommerce.notifications.entity.NotificationType;
-import com.ecommerce.notifications.exception.GlobalExceptionHandler;
 import com.ecommerce.notifications.service.NotificationService;
 import jakarta.persistence.EntityNotFoundException;
 import org.junit.jupiter.api.DisplayName;
@@ -26,7 +25,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @WebMvcTest(NotificationController.class)
-@Import({SecurityConfig.class, GlobalExceptionHandler.class})
 class NotificationControllerTest {
 
     @Autowired

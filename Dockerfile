@@ -33,6 +33,7 @@ COPY catalog-service/pom.xml catalog-service/
 COPY order-service/pom.xml order-service/
 COPY user-service/pom.xml user-service/
 COPY mcp-service/pom.xml mcp-service/
+COPY notification-service/pom.xml notification-service/
 RUN test -n "$MODULE" || (echo "MODULE est obligatoire : --build-arg MODULE=<module>" >&2; exit 1)
 RUN mvn -B -q -pl "$MODULE" -am dependency:go-offline -DskipTests
 
