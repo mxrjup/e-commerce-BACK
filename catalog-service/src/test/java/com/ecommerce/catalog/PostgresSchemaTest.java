@@ -1,7 +1,9 @@
 package com.ecommerce.catalog;
 
 import com.ecommerce.catalog.repository.ProductRepository;
+import com.ecommerce.catalog.service.StockService;
 import com.ecommerce.catalog.support.DockerRequiredInCi;
+import com.ecommerce.common.exception.ConflictException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -12,6 +14,15 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.PostgreSQLContainer;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -45,6 +56,9 @@ class PostgresSchemaTest {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
+    @Autowired
+    private StockService stockService;
+
     @Test
     void shouldMigrateValidateAndLoadTheDemoCatalogue() {
         // Le contexte a demarre : Flyway a joue V1 et V2, et Hibernate a valide le schema.
@@ -61,5 +75,47 @@ class PostgresSchemaTest {
                 .isInstanceOf(DataIntegrityViolationException.class);
         assertThat(jdbcTemplate.queryForObject("SELECT stock FROM variante WHERE id = ?", Integer.class, id))
                 .isEqualTo(5);
+    }
+
+    /** The conditional UPDATE of C07 on PostgreSQL's real row locks: 20 buyers, 7 units, 7 sales. */
+    @Test
+    void shouldNeverSellMoreThanTheStockUnderConcurrency() throws Exception {
+        Long id = jdbcTemplate.queryForObject("SELECT id FROM variante WHERE sku = 'DELL-U2723QE'", Long.class);
+        int buyers = 20;
+        ExecutorService pool = Executors.newFixedThreadPool(buyers);
+        CountDownLatch start = new CountDownLatch(1);
+        List<Future<Boolean>> results = new ArrayList<>();
+        for (int i = 0; i < buyers; i++) {
+            results.add(pool.submit(() -> {
+                start.await();
+                try {
+                    stockService.decrement(Map.of(id, 1));
+                    return true;
+                } catch (ConflictException e) {
+                    return false;
+                }
+            }));
+        }
+        start.countDown();
+        int sold = 0;
+        for (Future<Boolean> result : results) {
+            if (result.get(30, TimeUnit.SECONDS)) {
+                sold++;
+            }
+        }
+        pool.shutdown();
+
+        assertThat(sold).isEqualTo(7);
+        assertThat(jdbcTemplate.queryForObject("SELECT stock FROM variante WHERE id = ?", Integer.class, id)).isZero();
+    }
+
+    @Test
+    void shouldSearchTheInventory() {
+        assertThat(stockService.inventory("g915", false, 0, 20).content())
+                .extracting(line -> line.sku())
+                .containsExactlyInAnyOrder("LOGI-G915TKL-AZ-NOI", "LOGI-G915TKL-AZ-BLA");
+        assertThat(stockService.inventory("%", false, 0, 20).totalElements()).isZero();
+        assertThat(stockService.inventory(null, true, 0, 20).content())
+                .allMatch(line -> line.lowStock());
     }
 }

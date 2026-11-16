@@ -67,7 +67,9 @@ public class Variant extends AuditedEntity {
     @Column(name = "seuil_alerte", nullable = false)
     private int alertThreshold;
 
+    /** Loaded for up to 100 variants at once when a list of variants needs them. */
     @ManyToMany
+    @BatchSize(size = 100)
     @JoinTable(name = "variante_valeur",
             joinColumns = @JoinColumn(name = "variante_id"),
             inverseJoinColumns = @JoinColumn(name = "valeur_id"))
