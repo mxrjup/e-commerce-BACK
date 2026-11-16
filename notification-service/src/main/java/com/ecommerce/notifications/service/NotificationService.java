@@ -5,10 +5,11 @@ import com.ecommerce.notifications.dto.VariantAlertSummaryDto;
 import com.ecommerce.notifications.entity.Notification;
 import com.ecommerce.notifications.entity.VariantAlert;
 import com.ecommerce.notifications.repository.NotificationRepository;
-import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 import java.util.List;
@@ -38,7 +39,8 @@ public class NotificationService {
     @Transactional
     public NotificationResponseDto markAsRead(Long notificationId, String recipientId) {
         Notification notification = notificationRepository.findByIdAndRecipientId(notificationId, recipientId)
-                .orElseThrow(() -> new EntityNotFoundException("Notification not found: " + notificationId));
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND, "Notification not found: " + notificationId));
 
         notification.markAsRead();
         return mapToDto(notificationRepository.save(notification));

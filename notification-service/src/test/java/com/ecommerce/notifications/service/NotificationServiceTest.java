@@ -6,13 +6,13 @@ import com.ecommerce.notifications.entity.NotificationType;
 import com.ecommerce.notifications.entity.VariantAlert;
 import com.ecommerce.notifications.entity.VariantAlertType;
 import com.ecommerce.notifications.repository.NotificationRepository;
-import jakarta.persistence.EntityNotFoundException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 import java.util.List;
@@ -97,7 +97,7 @@ class NotificationServiceTest {
                 .thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> notificationService.markAsRead(99L, "user-sub-123"))
-                .isInstanceOf(EntityNotFoundException.class);
+                .isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
         verify(notificationRepository, never()).save(any());
     }
 }

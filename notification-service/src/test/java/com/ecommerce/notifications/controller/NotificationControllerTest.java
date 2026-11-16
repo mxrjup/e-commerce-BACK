@@ -4,7 +4,6 @@ import com.ecommerce.notifications.config.SecurityConfig;
 import com.ecommerce.notifications.dto.NotificationResponseDto;
 import com.ecommerce.notifications.entity.NotificationType;
 import com.ecommerce.notifications.service.NotificationService;
-import jakarta.persistence.EntityNotFoundException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -13,6 +12,7 @@ import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 import java.util.List;
@@ -70,7 +70,8 @@ class NotificationControllerTest {
     @DisplayName("PATCH /api/v1/notifications/{id}/read should return 404 when not owned")
     void markAsRead_WhenNotFound_ShouldReturnNotFound() throws Exception {
         when(notificationService.markAsRead(999L, "user-123"))
-                .thenThrow(new EntityNotFoundException("Notification not found: 999"));
+                .thenThrow(new org.springframework.web.server.ResponseStatusException(
+                        org.springframework.http.HttpStatus.NOT_FOUND, "Notification not found: 999"));
 
         mockMvc.perform(patch("/api/v1/notifications/999/read")
                         .with(jwt().jwt(j -> j.subject("user-123"))))
