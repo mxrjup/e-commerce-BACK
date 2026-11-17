@@ -27,6 +27,7 @@ public class NotificationKafkaConsumers {
     private final NotificationService notificationService;
     private final CatalogAlertService catalogAlertService;
     private final UserSubjectResolver userSubjectResolver;
+    private final CatalogAlertService catalogAlertService;
 
     @KafkaListener(topics = "${app.kafka.topics.order-paid:" + KafkaTopics.ORDER_PAID + "}")
     public void onOrderPaid(OrderPaidEvent event) {
@@ -84,9 +85,6 @@ public class NotificationKafkaConsumers {
         }
     }
 
-    /**
-     * Topic 3 : Réponse d'un collaborateur sur un ticket SAV (sav.reponse-admin / S03).
-     */
     @KafkaListener(topics = "${app.kafka.topics.support-admin-reply:" + KafkaTopics.SUPPORT_ADMIN_REPLY + "}")
     public void onSupportAdminReply(SupportAdminReplyEvent event) {
         Optional<String> recipientSub = userSubjectResolver.resolveKeycloakSubject(event.userId());
