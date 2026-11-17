@@ -405,8 +405,8 @@ Paramètres de la liste, tous facultatifs :
 | `page`, `size` | page à partir de 0, 20 produits par défaut, 50 au plus |
 
 Un slug inconnu donne une page vide ; une page, une taille ou un tri invalide
-répond 400. Les filtres multiples, la fourchette de prix et la recherche par
-mots relèvent de la recherche facettée (`C03` #42).
+répond 400. La recherche textuelle et les filtres de prix et d'attributs sont
+décrits dans la section [Recherche](#recherche) ci-dessous.
 
 ```json
 {
@@ -444,6 +444,130 @@ barré, sa part d'écotaxe, `available`, `lowStock` et ses photos.
   en base (le tri par prix compare la variante la moins chère de chaque
   produit), puis ces produits. Une page de 17 produits coûte 7 requêtes.
 
+### Recherche
+
+`C03` (#42) complète la liste C02 avec des filtres combinables, des facettes
+et des suggestions. Les endpoints restent publics ; seules les fiches publiées
+possédant au moins une variante sont visibles, même si leur stock est nul.
+Les formats `PageResponse<ProductCardResponse>` et `ProductCardResponse` de C02
+restent inchangés.
+
+| Chemin | Réponse |
+|---|---|
+| `GET /api/catalog/products` | page de cartes filtrées |
+| `GET /api/catalog/products/facets` | catégories, marques, univers, bornes de prix, attributs et spécifications disponibles |
+| `GET /api/catalog/products/autocomplete?q=logitec&limit=5` | tableau de cartes, classées par pertinence sur PostgreSQL |
+
+Les nouveaux paramètres de la liste et des facettes sont facultatifs :
+
+| Paramètre | Effet |
+|---|---|
+| `q` | sous-chaîne du titre, du nom de la catégorie directe ou du nom de la marque ; casse et accents français/latins usuels ignorés ; 150 caractères au plus |
+| `minPrice`, `maxPrice` | bornes inclusives du prix minimum TTC du produit, remise et écotaxe comprises ; valeurs positives ou nulles, minimum ≤ maximum |
+| `attribute` | répétable, `nom:valeur`, par exemple `Couleur:Noir` |
+| `specification` | répétable, `clé:valeur`, par exemple `Garantie:2 ans` |
+
+Ils se combinent avec `category` (descendants compris), `brand` et `universe`.
+La liste conserve `sort`, `page` et `size` décrits dans C02 ; les facettes ne sont
+pas paginées. Une recherche vide n'ajoute pas de filtre. `%` et `_` sont des
+caractères littéraux. La normalisation des accents utilise `translate` et
+`replace` en SQL, identiques sur H2 et PostgreSQL, sans extension `unaccent`.
+Elle couvre notamment `é/è/ê/ë`, `à/â`, `ç`, `œ` et `æ` ; ce n'est pas une
+translittération de tous les alphabets Unicode.
+
+Pour les attributs et spécifications : égalité exacte sensible à la casse,
+**OU entre valeurs d'une même clé**, **ET entre clés différentes**. Les attributs
+sélectionnés doivent coexister sur **une même variante**. Le prix filtré reste
+le prix minimum du produit entier, comme celui de sa carte, même si un attribut
+est sélectionné. Au maximum 20 occurrences de chaque paramètre ; noms/valeurs
+non vides, longueurs maximales 50/50 pour les attributs et 100/500 pour les
+spécifications. Le premier `:` sépare le nom de la valeur ; virgules et `:`
+suivants font partie de la valeur. Encoder normalement les paramètres dans l'URL.
+
+**Chaque groupe de facettes ignore sa propre sélection**, et conserve `q` et
+tous les autres critères : les marques ignorent `brand`, les catégories ignorent
+`category`, les univers ignorent `universe`, le prix ignore ses deux bornes.
+Chaque clé technique est un groupe distinct : `Couleur` ignore seulement les
+couleurs sélectionnées, pas `Layout clavier` ni les spécifications.
+Les valeurs d'attribut proposées doivent coexister sur une variante avec les
+autres attributs sélectionnés.
+
+Les compteurs sont des **produits distincts**, avant pagination. Ainsi, avec le
+catalogue de démonstration, sélectionner `Couleur:Noir` laisse le compteur de
+`Couleur:Blanc` à 4. Ce compteur décrit les produits correspondant à **Blanc**
+avec les autres critères ; ce n'est pas le total de l'union Noir OU Blanc.
+Ne pas additionner les compteurs : un produit peut avoir plusieurs couleurs.
+Une sélection sans résultat peut encore proposer des alternatives dans son
+propre groupe. Un groupe sans correspondance retourne un tableau vide ; une
+fourchette sans correspondance retourne `{"min":null,"max":null}`.
+
+Exemple avec le profil `demo` :
+
+```bash
+curl -G localhost:8081/api/catalog/products \
+  --data-urlencode 'q=g915' \
+  --data-urlencode 'category=peripheriques' \
+  --data-urlencode 'brand=logitech' \
+  --data-urlencode 'minPrice=200.11' --data-urlencode 'maxPrice=200.11' \
+  --data-urlencode 'attribute=Couleur:Noir' \
+  --data-urlencode 'specification=Garantie:2 ans'
+```
+
+La réponse est une page C02 contenant le G915 TKL à **200,11 €**, avec
+`totalElements: 1`. Pour construire les filtres, envoyer les mêmes critères à
+`/api/catalog/products/facets`. Exemple complet pour `?q=g915` :
+
+```json
+{
+  "categories": [{"slug":"claviers","name":"Claviers","count":1}],
+  "brands": [{"slug":"logitech","name":"Logitech","count":1}],
+  "universes": [{"slug":"gaming","name":"Gaming","count":1}],
+  "price": {"min":200.11,"max":200.11},
+  "attributes": [
+    {"name":"Couleur","value":"Blanc","count":1},
+    {"name":"Couleur","value":"Noir","count":1},
+    {"name":"Layout clavier","value":"AZERTY","count":1}
+  ],
+  "specifications": [
+    {"name":"Connectique","value":"Lightspeed, Bluetooth, USB","count":1},
+    {"name":"Garantie","value":"2 ans","count":1},
+    {"name":"Switches","value":"GL Tactile","count":1}
+  ]
+}
+```
+
+**Autocomplétion** : `q` porte sur le titre des produits. Sur PostgreSQL,
+`pg_trgm` tolère les fautes (`logitec`, `macbok`) grâce à la similarité de mot
+(seuil PostgreSQL par défaut : 0,6), complétée par une recherche littérale.
+Les suggestions sont triées par `word_similarity`, puis `similarity`, puis titre
+et ID pour stabiliser les égalités. `limit` vaut 8 par défaut, entre 1 et 20.
+La réponse est un tableau de cartes C02 ; recherche vide ou sans résultat : `[]`.
+Avec `local-h2`, le repli est une recherche littérale `LIKE`, sans tolérance aux
+fautes ; les titres exacts viennent d'abord, puis le titre et l'ID.
+
+Les paramètres invalides répondent **400** via le contrat d'erreur commun :
+prix négatif, minimum supérieur au maximum, recherche trop longue, filtre
+technique mal formé, limite ou pagination invalide.
+
+Les filtres, comptes, tris et pagination sont exécutés en SQL paramétré ; les
+clauses `EXISTS` et les comptes distincts évitent les doublons. La migration V3
+préserve V1/V2, ajoute l'index des spécifications sur les deux bases et active
+`pg_trgm` avec un index GIN des titres uniquement sur PostgreSQL. Le rôle Flyway
+doit pouvoir installer cette extension. Aucune fonction trigramme n'est simulée
+sur H2.
+
+Vérification avec **Java 21** et Docker actif :
+
+```bash
+./mvnw -pl catalog-service -am clean verify
+```
+
+Les tests de recherche/facettes sont rejoués sur H2 et PostgreSQL 16 via
+Testcontainers : filtres combinés, compteurs sans leur propre sélection,
+compatibilité des attributs sur une variante, prix TTC, pagination, exclusions,
+accents et paramètres invalides. Les tests PostgreSQL vérifient aussi les
+trigrammes et leur index. Sans Docker, ils sont ignorés localement et échouent
+en CI ; les tests C02 et le repli H2 restent exécutés.
 ### Stock
 
 `C07` (#7) : l'inventaire du back-office (écran `C20` #16), les corrections

@@ -61,9 +61,9 @@ class PostgresSchemaTest {
 
     @Test
     void shouldMigrateValidateAndLoadTheDemoCatalogue() {
-        // Le contexte a demarre : Flyway a joue V1 et V2, et Hibernate a valide le schema.
+        // Le contexte a demarre : Flyway a joue V1, V2 et V3, et Hibernate a valide le schema.
         assertThat(jdbcTemplate.queryForObject("SELECT MAX(version) FROM flyway_schema_history", String.class))
-                .isEqualTo("2");
+                .isEqualTo("3");
         assertThat(productRepository.count()).isEqualTo(19);
     }
 
