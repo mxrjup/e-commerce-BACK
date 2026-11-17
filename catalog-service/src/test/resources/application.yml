@@ -17,3 +17,9 @@ spring:
     hibernate:
       ddl-auto: validate
     open-in-view: false
+
+  # Pas de broker pour les tests H2 : le consommateur de order.paid (C21) ne
+  # demarre pas. Les tests Kafka sur un vrai broker le reactivent.
+  kafka:
+    listener:
+      auto-startup: false

@@ -37,6 +37,16 @@
         </dependency>
 
         <!--
+          Consommateur de order.paid (C21) : le stock baisse quand une commande
+          est payee. La configuration JSON, les retries et la DLT viennent de
+          common-lib.
+        -->
+        <dependency>
+            <groupId>org.springframework.kafka</groupId>
+            <artifactId>spring-kafka</artifactId>
+        </dependency>
+
+        <!--
           Le schema est versionne par Flyway, pas genere par Hibernate : C01 (#3)
           ajoute ses tables par de nouvelles migrations a la suite de V1.
         -->
@@ -70,6 +80,13 @@
         <dependency>
             <groupId>org.testcontainers</groupId>
             <artifactId>postgresql</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- Tests d'integration Kafka sur un vrai broker (K04), comme le panier -->
+        <dependency>
+            <groupId>com.ecommerce</groupId>
+            <artifactId>common-test</artifactId>
+            <version>${project.version}</version>
             <scope>test</scope>
         </dependency>
         <dependency>
