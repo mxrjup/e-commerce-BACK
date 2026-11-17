@@ -198,7 +198,7 @@ mots de passe lisibles des comptes de démo par leurs empreintes.
 
 | Topic | Publié par | Consommé par |
 |---|---|---|
-| `order.paid` | Commande, à la validation du paiement (`O03` #27) | Panier (`P06` #24), Notifications (`N02` #63) |
+| `order.paid` | Commande, à la validation du paiement (`O03` #27) | Panier (`P06` #24), Catalogue (`C21` #10), Notifications (`N02` #63) |
 | `catalogue.evenements` | Catalogue : baisse de prix, retour en stock (`C09` #8) | Alertes (`N03` #64) |
 | `sav.reponse-admin` | SAV : réponse d'un collaborateur (`S03` #69) | Notifications (`N02` #63) |
 
@@ -585,11 +585,10 @@ aux rôles `collaborator` et `admin` par la gateway, comme tout `/api/admin/**`.
   reste positif ou nul) : un ajustement trop grand répond 409 sans rien
   changer, et deux commandes simultanées ne prennent pas le même dernier
   article. La contrainte `ck_variante_stock` de `V2` le garantit aussi en base.
-- **`StockService.decrement`** retire les quantités d'une commande **tout ou
-  rien** : si une variante manque de stock, aucune ne bouge. Les variantes
-  sont traitées dans l'ordre de leur id, pour que deux commandes qui partagent
-  des variantes ne se bloquent pas mutuellement. Pas d'adresse HTTP : le
-  consommateur de commandes payées (`C21` #10) l'appellera directement.
+- **`StockService.decrement`** retire des quantités **tout ou rien** : si une
+  variante manque de stock, aucune ne bouge. Les variantes sont traitées dans
+  l'ordre de leur id, pour que deux opérations qui partagent des variantes ne
+  se bloquent pas mutuellement.
 - Vérifié sur PostgreSQL 16 : 20 achats simultanés d'une variante à 7 en
   stock donnent exactement 7 ventes, et un stock final à 0.
 - **Pas d'historique des mouvements** pour l'instant : seul le stock actuel est
@@ -597,6 +596,38 @@ aux rôles `collaborator` et `admin` par la gateway, comme tout `/api/admin/**`.
   besoin apparaît.
 - La vitrine n'affiche toujours que `available` et `lowStock`, jamais le
   stock exact.
+
+### Commandes payées
+
+`C21` (#10) : quand une commande est payée, le catalogue retire ses quantités
+du stock. `OrderPaidEvent` porte pour cela **`items`**, une entrée
+`{variantId, quantity}` par ligne de commande, remplie par `order-service` au
+moment de publier. Le champ est toujours présent : vide pour un message
+publié avant `C21`, et ignoré par les consommateurs qui n'en ont pas besoin.
+
+`OrderPaidStockListener` (groupe `catalog-service`) traite chaque commande :
+
+- **Une seule fois.** Kafka livre au moins une fois, et Stripe peut rappeler
+  le webhook : l'id de la commande est enregistré dans `commande_traitee`
+  (migration `V4`) dans la même transaction que le changement de stock. Une
+  deuxième livraison le trouve et ne change rien.
+- **Sans jamais refuser.** Le client a déjà payé : si le stock ne couvre plus
+  une ligne (deux clients ont payé le dernier article à quelques secondes
+  d'écart), le catalogue prend ce qui reste, le stock s'arrête à 0, et un
+  **WARN** nomme la commande, la variante et les unités manquantes, pour que
+  quelqu'un contacte le client. Une variante supprimée depuis est signalée de
+  la même façon ; les autres lignes sont servies.
+- **Sans survente ni interblocage.** Chaque ligne verrouille sa variante avant
+  de la lire, dans l'ordre des ids (`StockService.takePaidOrder`). Vérifié sur
+  PostgreSQL 16 : 10 commandes payées en même temps pour 2 unités en prennent
+  2 et signalent 8 manques, stock final à 0.
+- En cas d'erreur, la transaction annule tout, puis la politique commune
+  réessaie et envoie le message dans `order.paid.dlt`.
+
+Le catalogue a donc besoin de Kafka : `SPRING_KAFKA_BOOTSTRAP_SERVERS` dans le
+Docker Compose, comme le panier. Les tests H2 coupent le consommateur
+(`spring.kafka.listener.auto-startup: false`) ; `OrderPaidStockKafkaIntegrationTest`
+le rejoue sur un vrai broker.
 
 ## Collaborateurs (Keycloak)
 
