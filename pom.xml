@@ -29,6 +29,7 @@
         <module>user-service</module>
         <module>order-service</module>
         <module>mcp-service</module>
+        <module>notification-service</module>
     </modules>
 
     <properties>
