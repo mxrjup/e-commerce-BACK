@@ -453,6 +453,33 @@ class OrderServiceTest {
     }
 
     @Test
+    @DisplayName("Paid-order event lists every order line, for the catalogue to take them out of the stock")
+    void testHandleStripeWebhook_PublishesTheOrderLines() throws Exception {
+        Order order = new Order();
+        order.setUserId(1L);
+        order.setOrderNumber("CMD-2026-000107");
+        order.setStatus(OrderStatus.NEW);
+        order.setStripeSessionId("cs_test_items");
+        order.addItem(new OrderItem(order, 4L, "Logitech G915 TKL - Noir, AZERTY", new BigDecimal("166.76"),
+            new BigDecimal("20.00"), new BigDecimal("130.00"), 2));
+        order.addItem(new OrderItem(order, 7L, "Logitech MX Master 3S - Gris sidéral", new BigDecimal("91.71"),
+            new BigDecimal("20.00"), new BigDecimal("55.00"), 1));
+        orderRepository.save(order);
+
+        String payload = "{\"id\":\"evt_132\",\"object\":\"event\",\"api_version\":\"" + com.stripe.Stripe.API_VERSION + "\",\"type\":\"checkout.session.async_payment_succeeded\",\"data\":{\"object\":{\"id\":\"cs_test_items\",\"object\":\"checkout.session\",\"payment_status\":\"paid\"}}}";
+        String sigHeader = generateStripeSignature(payload, stripeProperties.getWebhookSecret());
+        when(kafkaTemplate.send(eq("order.paid"), eq("CMD-2026-000107"), any(OrderPaidEvent.class)))
+            .thenReturn(CompletableFuture.completedFuture(mock(SendResult.class)));
+
+        orderService.handleStripeWebhook(payload, sigHeader);
+
+        org.mockito.ArgumentCaptor<OrderPaidEvent> published = org.mockito.ArgumentCaptor.forClass(OrderPaidEvent.class);
+        verify(kafkaTemplate).send(eq("order.paid"), eq("CMD-2026-000107"), published.capture());
+        assertEquals(java.util.List.of(new OrderPaidEvent.Item(4L, 2), new OrderPaidEvent.Item(7L, 1)),
+            published.getValue().items());
+    }
+
+    @Test
     @DisplayName("Webhook with valid signature marks order as IN_PREPARATION and stores invoice URL")
     void testHandleStripeWebhook_Success() throws Exception {
         Order order = new Order();

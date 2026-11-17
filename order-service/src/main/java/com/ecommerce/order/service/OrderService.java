@@ -343,6 +343,10 @@ public class OrderService {
             .userId(order.getUserId())
             .sessionToken(order.getSessionToken())
             .totalInclTax(order.getTotalInclTax())
+            // Ce que le catalogue retire du stock (C21) : une entree par ligne de commande.
+            .items(order.getItems().stream()
+                .map(item -> new OrderPaidEvent.Item(item.getVariantId(), item.getQuantity()))
+                .toList())
             .build();
 
         try {

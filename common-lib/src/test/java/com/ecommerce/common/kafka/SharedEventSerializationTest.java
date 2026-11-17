@@ -47,11 +47,27 @@ class SharedEventSerializationTest {
                 .orderNumber("CMD-2026-000042")
                 .userId(7L)
                 .totalInclTax(new BigDecimal("45.90"))
+                .items(java.util.List.of(new OrderPaidEvent.Item(4L, 2), new OrderPaidEvent.Item(7L, 1)))
                 .build();
 
         Object received = roundTrip(sent);
 
         assertThat(received).isEqualTo(sent);
+        assertThat(((OrderPaidEvent) received).items()).hasSize(2);
+    }
+
+    @Test
+    void shouldReadAnOrderPaidEventWithoutItemsAsAnEmptyList() {
+        RecordHeaders headers = new RecordHeaders();
+        byte[] body = serializer.serialize(TOPIC, headers,
+                OrderPaidEvent.builder().orderId(1L).orderNumber("CMD-1").build());
+        // Ce qu'envoyait order-service avant C21 : pas de champ items.
+        String withoutItems = new String(body).replace(",\"items\":[]", "");
+
+        OrderPaidEvent received = (OrderPaidEvent) deserializer.deserialize(TOPIC, headers, withoutItems.getBytes());
+
+        assertThat(withoutItems).doesNotContain("items");
+        assertThat(received.items()).isEmpty();
     }
 
     @Test
