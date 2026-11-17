@@ -71,6 +71,22 @@ public class NotificationKafkaConsumers {
         }
     }
 
+    @KafkaListener(topics = "${app.kafka.topics.catalog-events:" + KafkaTopics.CATALOG_EVENTS + "}")
+    public void onCatalogEvent(CatalogEvent event) {
+        switch (event) {
+            case PriceDroppedEvent drop -> {
+                int count = catalogAlertService.handlePriceDropped(drop);
+                log.info("PriceDroppedEvent traité (variantId={}, notificationsCréées={})",
+                        drop.variantId(), count);
+            }
+            case BackInStockEvent restock -> {
+                int count = catalogAlertService.handleBackInStock(restock);
+                log.info("BackInStockEvent traité (variantId={}, notificationsCréées={})",
+                        restock.variantId(), count);
+            }
+        }
+    }
+
     /**
      * Topic 3 : Réponse d'un collaborateur sur un ticket SAV (sav.reponse-admin / S03).
      */
