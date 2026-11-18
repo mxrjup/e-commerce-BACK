@@ -53,6 +53,7 @@ expo:
   push:
     enabled: ${EXPO_PUSH_ENABLED:true}
     api-url: ${EXPO_PUSH_API_URL:https://exp.host/--/api/v2/push/send}
+
 ---
 spring:
   config:
@@ -74,4 +75,21 @@ spring:
     hibernate:
       ddl-auto: create-drop
     show-sql: true
+
+  mail:
+    host: ${SPRING_MAIL_HOST:localhost}
+    port: ${SPRING_MAIL_PORT:1025}
+    username: ${SPRING_MAIL_USERNAME:}
+    password: ${SPRING_MAIL_PASSWORD:}
+    properties:
+      mail:
+        smtp:
+          auth: ${SPRING_MAIL_AUTH:false}
+          starttls:
+            enable: ${SPRING_MAIL_STARTTLS:false}
+
+app:
+  mail:
+    enabled: ${APP_MAIL_ENABLED:true}
+    from: ${APP_MAIL_FROM:no-reply@ecommerce.local}
   
