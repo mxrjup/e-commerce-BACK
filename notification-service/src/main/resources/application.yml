@@ -45,6 +45,10 @@ keycloak:
     client-id: ${KEYCLOAK_ADMIN_CLIENT_ID:user-service}
     client-secret: ${KEYCLOAK_ADMIN_CLIENT_SECRET:set-me}
 
+services:
+  user-service:
+    uri: ${USER_SERVICE_URI:http://localhost:8082}
+
 ---
 spring:
   config:
@@ -67,7 +71,3 @@ spring:
       ddl-auto: create-drop
     show-sql: true
   
-
-services:
-  user-service:
-    uri: ${USER_SERVICE_URI:http://localhost:8082}
