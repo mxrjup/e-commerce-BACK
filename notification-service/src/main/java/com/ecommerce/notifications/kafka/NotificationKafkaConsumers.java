@@ -6,6 +6,7 @@ import com.ecommerce.common.event.OrderPaidEvent;
 import com.ecommerce.common.event.PriceDroppedEvent;
 import com.ecommerce.common.event.SupportAdminReplyEvent;
 import com.ecommerce.common.kafka.KafkaTopics;
+import com.ecommerce.notifications.client.UserSubjectResolver;
 import com.ecommerce.notifications.entity.NotificationType;
 import com.ecommerce.notifications.service.CatalogAlertService;
 import com.ecommerce.notifications.service.NotificationService;
@@ -16,6 +17,7 @@ import org.springframework.stereotype.Component;
 
 import java.text.NumberFormat;
 import java.util.Locale;
+import java.util.Optional;
 
 @Slf4j
 @Component
@@ -24,12 +26,14 @@ public class NotificationKafkaConsumers {
 
     private final NotificationService notificationService;
     private final CatalogAlertService catalogAlertService;
+    private final UserSubjectResolver userSubjectResolver;
 
     @KafkaListener(topics = "${app.kafka.topics.order-paid:" + KafkaTopics.ORDER_PAID + "}")
     public void onOrderPaid(OrderPaidEvent event) {
-        if (event.userId() == null) {
-            log.info("Commande invité payée ignorée pour les notifications (orderId={}, orderNumber={})",
-                    event.orderId(), event.orderNumber());
+        Optional<String> recipientSub = userSubjectResolver.resolveKeycloakSubject(event.userId());
+        if (recipientSub.isEmpty()) {
+            log.info("Commande ignorée pour les notifications (orderId={}, orderNumber={}, userId={})",
+                    event.orderId(), event.orderNumber(), event.userId());
             notificationService.markEventProcessed(event.eventId(), KafkaTopics.ORDER_PAID);
             return;
         }
@@ -41,7 +45,7 @@ public class NotificationKafkaConsumers {
         notificationService.createFromEvent(
                 event.eventId(),
                 KafkaTopics.ORDER_PAID,
-                String.valueOf(event.userId()),
+                recipientSub.get(),
                 NotificationType.ORDER_UPDATE,
                 "Commande confirmée",
                 "Votre commande " + event.orderNumber() + amountText + " a bien été payée et est en cours de préparation."
@@ -66,6 +70,14 @@ public class NotificationKafkaConsumers {
 
     @KafkaListener(topics = "${app.kafka.topics.support-admin-reply:" + KafkaTopics.SUPPORT_ADMIN_REPLY + "}")
     public void onSupportAdminReply(SupportAdminReplyEvent event) {
+        Optional<String> recipientSub = userSubjectResolver.resolveKeycloakSubject(event.userId());
+        if (recipientSub.isEmpty()) {
+            log.warn("Réponse SAV ignorée car aucun subject Keycloak résolu pour userId={} (ticketId={})",
+                    event.userId(), event.ticketId());
+            notificationService.markEventProcessed(event.eventId(), KafkaTopics.SUPPORT_ADMIN_REPLY);
+            return;
+        }
+
         String subjectPart = (event.ticketSubject() != null && !event.ticketSubject().isBlank())
                 ? " (« " + event.ticketSubject() + " »)"
                 : "";
@@ -73,7 +85,7 @@ public class NotificationKafkaConsumers {
         notificationService.createFromEvent(
                 event.eventId(),
                 KafkaTopics.SUPPORT_ADMIN_REPLY,
-                String.valueOf(event.userId()),
+                recipientSub.get(),
                 NotificationType.SYSTEM,
                 "Nouvelle réponse du support",
                 "Un conseiller a répondu à votre demande SAV #" + event.ticketId() + subjectPart + "."

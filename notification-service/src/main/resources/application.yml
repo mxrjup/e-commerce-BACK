@@ -66,3 +66,8 @@ spring:
     hibernate:
       ddl-auto: create-drop
     show-sql: true
+  
+
+services:
+  user-service:
+    uri: ${USER_SERVICE_URI:http://localhost:8082}
