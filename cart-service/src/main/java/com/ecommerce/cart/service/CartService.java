@@ -5,6 +5,7 @@ import com.ecommerce.cart.client.CatalogVariantResponse;
 import com.ecommerce.cart.dto.AddCartItemRequest;
 import com.ecommerce.cart.dto.CartItemResponse;
 import com.ecommerce.cart.dto.CartResponse;
+import com.ecommerce.cart.dto.SuggestedAccessoryResponse;
 import com.ecommerce.cart.entity.Cart;
 import com.ecommerce.cart.entity.CartItem;
 import com.ecommerce.cart.entity.ProcessedOrderEvent;
@@ -25,6 +26,8 @@ import java.util.UUID;
 @RequiredArgsConstructor
 @Transactional
 public class CartService {
+
+    private static final int MAX_ACCESSORY_SUGGESTIONS = 8;
 
     private final CartRepository cartRepository;
     private final ProcessedOrderEventRepository processedOrderEventRepository;
@@ -72,7 +75,24 @@ public class CartService {
         CartResponse response = CartResponse.fromEntity(cart);
         response.setItems(items);
         response.setTotalItems(items.stream().mapToInt(CartItemResponse::getQuantity).sum());
+        response.setSuggestedAccessories(suggestedAccessories(variantIds));
         return response;
+    }
+
+    private List<SuggestedAccessoryResponse> suggestedAccessories(List<Long> cartVariantIds) {
+        if (cartVariantIds == null || cartVariantIds.isEmpty()) {
+            return List.of();
+        }
+
+        List<CatalogVariantResponse> candidates = Optional
+                .ofNullable(catalogClient.getAccessoryVariants(cartVariantIds, MAX_ACCESSORY_SUGGESTIONS))
+                .orElse(List.of());
+
+        return candidates.stream()
+                .filter(candidate -> candidate != null && candidate.id() != null)
+                .filter(candidate -> !cartVariantIds.contains(candidate.id()))
+                .map(SuggestedAccessoryResponse::fromCatalog)
+                .toList();
     }
 
     private CartItemResponse enrichCartItem(CartItem item, Map<Long, CatalogVariantResponse> variantsById) {

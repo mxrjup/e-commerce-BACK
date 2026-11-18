@@ -102,6 +102,37 @@ class CartServiceTest {
     }
 
     @Test
+    @DisplayName("Cart read exposes accessory suggestions from catalog associations")
+    void testGetCart_ExposesAccessorySuggestions() {
+        cartService.addItem(null, "my-session-token", new AddCartItemRequest(100L, 1));
+
+        when(catalogClient.getVariants(java.util.List.of(100L))).thenReturn(java.util.List.of(new CatalogVariantResponse(
+                100L,
+                "Produit principal",
+                new BigDecimal("99.90"),
+                new BigDecimal("20.00"),
+                true,
+                "https://cdn.example.com/main.png"
+        )));
+        when(catalogClient.getAccessoryVariants(java.util.List.of(100L), 8)).thenReturn(java.util.List.of(
+                new CatalogVariantResponse(
+                        200L,
+                        "Accessoire recommandé",
+                        new BigDecimal("29.90"),
+                        new BigDecimal("20.00"),
+                        true,
+                        "https://cdn.example.com/accessory.png"
+                )
+        ));
+
+        CartResponse response = cartService.getCart(null, "my-session-token");
+
+        assertEquals(1, response.getSuggestedAccessories().size());
+        assertEquals(200L, response.getSuggestedAccessories().get(0).getVariantId());
+        assertEquals("Accessoire recommandé", response.getSuggestedAccessories().get(0).getProductName());
+    }
+
+    @Test
     @DisplayName("Guest without token: creates and persists a new guest cart in database")
     void testGetOrCreateCart_GuestNew() {
         Cart cart = cartService.getOrCreateCart(null, null);
