@@ -23,9 +23,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.text.NumberFormat;
+import java.time.Instant;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
-import java.time.Instant;
 import java.util.Map;
 
 @Slf4j
@@ -119,6 +120,7 @@ public class CatalogAlertService {
 
         int notifiedCount = 0;
         Instant now = Instant.now();
+        NumberFormat currencyFormat = NumberFormat.getCurrencyInstance(Locale.FRANCE);
 
         for (CatalogAlertSubscription subscription : subscriptions) {
             if (subscription.getTargetPriceExclTax() != null
@@ -128,7 +130,8 @@ public class CatalogAlertService {
 
             String title = "Baisse de prix sur un produit suivi";
             String message = "Le prix d'un produit que vous suivez est passé de "
-                    + event.previousUnitPriceExclTax() + " € HT à " + event.newUnitPriceExclTax() + " € HT.";
+                    + currencyFormat.format(event.previousUnitPriceExclTax()) + " HT à "
+                    + currencyFormat.format(event.newUnitPriceExclTax()) + " HT.";
 
             Notification saved = notificationRepository.save(
                     Notification.builder()
@@ -144,16 +147,12 @@ public class CatalogAlertService {
             subscription.setTriggeredAt(now);
             alertRepository.save(subscription);
 
+            Long effectiveProductId = event.productId() != null ? event.productId() : subscription.getProductId();
             pushNotificationService.sendPushToUser(
                     subscription.getRecipientId(),
                     title,
                     message,
-                    Map.of(
-                            "notificationId", saved.getId(),
-                            "type", NotificationType.VARIANT_ALERT.name(),
-                            "productId", event.productId(),
-                            "variantId", event.variantId()
-                    )
+                    buildAlertPushData(saved.getId(), effectiveProductId, event.variantId())
             );
             notifiedCount++;
         }
@@ -200,16 +199,12 @@ public class CatalogAlertService {
             subscription.setTriggeredAt(now);
             alertRepository.save(subscription);
 
+            Long effectiveProductId = event.productId() != null ? event.productId() : subscription.getProductId();
             pushNotificationService.sendPushToUser(
                     subscription.getRecipientId(),
                     title,
                     message,
-                    Map.of(
-                            "notificationId", saved.getId(),
-                            "type", NotificationType.VARIANT_ALERT.name(),
-                            "productId", event.productId(),
-                            "variantId", event.variantId()
-                    )
+                    buildAlertPushData(saved.getId(), effectiveProductId, event.variantId())
             );
             notifiedCount++;
         }
@@ -225,6 +220,21 @@ public class CatalogAlertService {
         return notifiedCount;
     }
 
+    private Map<String, Object> buildAlertPushData(Long notificationId, Long productId, Long variantId) {
+        Map<String, Object> data = new HashMap<>();
+        if (notificationId != null) {
+            data.put("notificationId", notificationId);
+        }
+        data.put("type", NotificationType.VARIANT_ALERT.name());
+        if (productId != null) {
+            data.put("productId", productId);
+        }
+        if (variantId != null) {
+            data.put("variantId", variantId);
+        }
+        return data;
+    }
+
     private CatalogAlertSubscription findOwnedAlert(Long alertId, String recipientId) {
         return alertRepository.findByIdAndRecipientId(alertId, recipientId)
                 .orElseThrow(() -> new ResourceNotFoundException("Catalog alert not found: " + alertId));
@@ -233,15 +243,6 @@ public class CatalogAlertService {
     private static void validateTargetPriceForType(CatalogAlertType type, boolean hasTargetPrice) {
         if (hasTargetPrice && type != CatalogAlertType.PRICE_DROP) {
             throw new BadRequestException("targetPriceExclTax is only supported for PRICE_DROP alerts");
-        }
-    }
-
-    private void markEventProcessed(java.util.UUID eventId) {
-        if (eventId != null && !processedKafkaEventRepository.existsById(eventId)) {
-            processedKafkaEventRepository.save(ProcessedKafkaEvent.builder()
-                    .eventId(eventId)
-                    .topic(KafkaTopics.CATALOG_EVENTS)
-                    .build());
         }
     }
 

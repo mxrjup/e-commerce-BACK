@@ -5,9 +5,11 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
+import java.time.Duration;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -22,8 +24,17 @@ public class ExpoPushClient {
     public ExpoPushClient(
             RestClient.Builder restClientBuilder,
             @Value("${expo.push.api-url:https://exp.host/--/api/v2/push/send}") String expoApiUrl,
-            @Value("${expo.push.enabled:true}") boolean enabled) {
-        this.restClient = restClientBuilder.baseUrl(expoApiUrl).build();
+            @Value("${expo.push.enabled:true}") boolean enabled,
+            @Value("${expo.push.connect-timeout-ms:3000}") int connectTimeoutMs,
+            @Value("${expo.push.read-timeout-ms:5000}") int readTimeoutMs) {
+        SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
+        requestFactory.setConnectTimeout(Duration.ofMillis(connectTimeoutMs));
+        requestFactory.setReadTimeout(Duration.ofMillis(readTimeoutMs));
+
+        this.restClient = restClientBuilder
+                .baseUrl(expoApiUrl)
+                .requestFactory(requestFactory)
+                .build();
         this.enabled = enabled;
     }
 
