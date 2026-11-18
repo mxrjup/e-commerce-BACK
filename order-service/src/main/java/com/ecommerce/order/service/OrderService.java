@@ -492,6 +492,7 @@ public class OrderService {
             Instant.now(),
             order.getId(),
             order.getOrderNumber(),
+            order.getUserId(),
             current.name(),
             nextStatus.name()
         );
