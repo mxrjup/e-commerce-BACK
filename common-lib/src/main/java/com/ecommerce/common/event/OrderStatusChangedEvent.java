@@ -17,6 +17,7 @@ public record OrderStatusChangedEvent(
         @JsonFormat(shape = JsonFormat.Shape.STRING) Instant occurredAt,
         Long orderId,
         String orderNumber,
+        Long userId,
         String previousStatus,
         String newStatus
 ) implements DomainEvent {
@@ -27,5 +28,15 @@ public record OrderStatusChangedEvent(
         Objects.requireNonNull(newStatus, "newStatus");
         eventId = eventId != null ? eventId : UUID.randomUUID();
         occurredAt = occurredAt != null ? occurredAt : Instant.now();
+    }
+
+    public OrderStatusChangedEvent(
+            UUID eventId,
+            Instant occurredAt,
+            Long orderId,
+            String orderNumber,
+            String previousStatus,
+            String newStatus) {
+        this(eventId, occurredAt, orderId, orderNumber, null, previousStatus, newStatus);
     }
 }
