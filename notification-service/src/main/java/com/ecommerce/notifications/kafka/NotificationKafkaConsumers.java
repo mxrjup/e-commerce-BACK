@@ -89,4 +89,4 @@ public class NotificationKafkaConsumers {
                 "Un conseiller a répondu à votre demande SAV #" + event.ticketId() + subjectPart + "."
         );
     }
-}   
+}
