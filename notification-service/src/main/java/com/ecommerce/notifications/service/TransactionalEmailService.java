@@ -4,6 +4,7 @@ import jakarta.mail.MessagingException;
 import jakarta.mail.internet.MimeMessage;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
@@ -23,7 +24,7 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class TransactionalEmailService {
 
-    private final JavaMailSender mailSender;
+    private final ObjectProvider<JavaMailSender> mailSenderProvider;
     private final SpringTemplateEngine templateEngine;
 
     @Value("${app.mail.enabled:true}")
@@ -86,6 +87,12 @@ public class TransactionalEmailService {
         }
         if (toEmail == null || toEmail.isBlank()) {
             log.warn("Impossible d'envoyer l'email '{}' : adresse destinataire manquante.", subject);
+            return;
+        }
+
+        JavaMailSender mailSender = mailSenderProvider.getIfAvailable();
+        if (mailSender == null) {
+            log.warn("Aucun bean JavaMailSender configuré (spring.mail.host manquant) : email '{}' non envoyé.", subject);
             return;
         }
 
