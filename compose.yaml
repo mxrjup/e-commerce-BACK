@@ -105,6 +105,17 @@ services:
       start_period: 20s
     restart: unless-stopped
 
+  # Serveur SMTP local et interface web de visualisation des emails (N05 #66)
+  mailpit:
+    image: axllent/mailpit:v1.20
+    container_name: ecommerce-mailpit
+    environment:
+      MP_MAX_MESSAGES: 500
+    ports:
+      - "${MAILPIT_SMTP_PORT:-1025}:1025"
+      - "${MAILPIT_WEB_PORT:-8025}:8025"
+    restart: unless-stopped
+
   kafka:
     image: apache/kafka:3.8.1
     container_name: ecommerce-kafka
@@ -381,6 +392,10 @@ services:
       KEYCLOAK_JWK_SET_URI: http://keycloak:8080/realms/ecommerce/protocol/openid-connect/certs
       USER_SERVICE_URI: http://user-service:8082
       MCP_USERS_READ_KEY: ${MCP_USERS_READ_KEY:-dev-mcp-read-key}
+      SPRING_MAIL_HOST: ${SPRING_MAIL_HOST:-mailpit}
+      SPRING_MAIL_PORT: ${SPRING_MAIL_PORT:-1025}
+      MAIL_ENABLED: ${MAIL_ENABLED:-true}
+      MAIL_FROM: ${MAIL_FROM:-noreply@ecommerce.test}
     ports:
       - "8085:8085"
     depends_on:

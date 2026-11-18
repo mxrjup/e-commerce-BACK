@@ -3,12 +3,14 @@ package com.ecommerce.notifications.kafka;
 import com.ecommerce.common.event.BackInStockEvent;
 import com.ecommerce.common.event.CatalogEvent;
 import com.ecommerce.common.event.OrderPaidEvent;
+import com.ecommerce.common.event.OrderStatusChangedEvent;
 import com.ecommerce.common.event.PriceDroppedEvent;
 import com.ecommerce.common.event.SupportAdminReplyEvent;
 import com.ecommerce.common.kafka.KafkaTopics;
 import com.ecommerce.notifications.client.UserSubjectResolver;
 import com.ecommerce.notifications.entity.NotificationType;
 import com.ecommerce.notifications.service.CatalogAlertService;
+import com.ecommerce.notifications.service.EmailService;
 import com.ecommerce.notifications.service.NotificationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -27,6 +29,7 @@ public class NotificationKafkaConsumers {
     private final NotificationService notificationService;
     private final CatalogAlertService catalogAlertService;
     private final UserSubjectResolver userSubjectResolver;
+    private final EmailService emailService;
 
     @KafkaListener(topics = "${app.kafka.topics.order-paid:" + KafkaTopics.ORDER_PAID + "}")
     public void onOrderPaid(OrderPaidEvent event) {
@@ -50,6 +53,61 @@ public class NotificationKafkaConsumers {
                 "Commande confirmée",
                 "Votre commande " + event.orderNumber() + amountText + " a bien été payée et est en cours de préparation."
         );
+
+        Optional<UserSubjectResolver.UserDetails> userDetails = userSubjectResolver.resolveUserDetails(event.userId());
+        userDetails.ifPresent(user -> emailService.sendOrderConfirmation(
+                user.email(),
+                user.displayName(),
+                event.orderNumber(),
+                event.totalInclTax(),
+                event.items()
+        ));
+    }
+
+    @KafkaListener(topics = "${app.kafka.topics.order-status-changed:" + KafkaTopics.ORDER_STATUS_CHANGED + "}")
+    public void onOrderStatusChanged(OrderStatusChangedEvent event) {
+        if (event == null || event.orderNumber() == null) {
+            log.warn("OrderStatusChangedEvent invalide ignoré: {}", event);
+            return;
+        }
+
+        if (!"SHIPPED".equalsIgnoreCase(event.newStatus())) {
+            log.debug("Changement de statut de commande ignoré pour notifications (orderNumber={}, status={})",
+                    event.orderNumber(), event.newStatus());
+            return;
+        }
+
+        if (event.userId() == null) {
+            log.info("Commande expédiée ignorée pour notifications car aucun userId (orderId={}, orderNumber={})",
+                    event.orderId(), event.orderNumber());
+            notificationService.markEventProcessed(event.eventId(), KafkaTopics.ORDER_STATUS_CHANGED);
+            return;
+        }
+
+        Optional<String> recipientSub = userSubjectResolver.resolveKeycloakSubject(event.userId());
+        if (recipientSub.isEmpty()) {
+            log.info("Commande expédiée ignorée pour les notifications in-app (orderId={}, orderNumber={}, userId={})",
+                    event.orderId(), event.orderNumber(), event.userId());
+            notificationService.markEventProcessed(event.eventId(), KafkaTopics.ORDER_STATUS_CHANGED);
+        } else {
+            notificationService.createFromEvent(
+                    event.eventId(),
+                    KafkaTopics.ORDER_STATUS_CHANGED,
+                    recipientSub.get(),
+                    NotificationType.ORDER_UPDATE,
+                    "Commande expédiée",
+                    "Votre commande " + event.orderNumber() + " a été expédiée et est en route."
+            );
+        }
+
+        Optional<UserSubjectResolver.UserDetails> userDetails = userSubjectResolver.resolveUserDetails(event.userId());
+        userDetails.ifPresent(user -> emailService.sendOrderShipped(
+                user.email(),
+                user.displayName(),
+                event.orderNumber(),
+                event.carrier(),
+                event.trackingNumber()
+        ));
     }
 
     @KafkaListener(topics = "${app.kafka.topics.catalog-events:" + KafkaTopics.CATALOG_EVENTS + "}")
@@ -90,5 +148,13 @@ public class NotificationKafkaConsumers {
                 "Nouvelle réponse du support",
                 "Un conseiller a répondu à votre demande SAV #" + event.ticketId() + subjectPart + "."
         );
+
+        Optional<UserSubjectResolver.UserDetails> userDetails = userSubjectResolver.resolveUserDetails(event.userId());
+        userDetails.ifPresent(user -> emailService.sendSupportReply(
+                user.email(),
+                user.displayName(),
+                event.ticketId(),
+                event.ticketSubject()
+        ));
     }
 }

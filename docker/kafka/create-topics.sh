@@ -23,6 +23,8 @@ TOPICS=(
   # S03 : reponse d'un collaborateur a un ticket, consommee par les
   # notifications (N02).
   "sav.reponse-admin"
+  # O04 : changement de statut de commande (preparation, expedition, livraison)
+  "order-status-changed"
 )
 
 # K02 : un topic de rebut par topic metier, nom = topic + ".dlt". Un message

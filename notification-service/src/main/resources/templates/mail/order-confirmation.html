@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="fr" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Confirmation de commande</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background-color: #f4f5f7;
+            margin: 0;
+            padding: 20px;
+            color: #333333;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            background-color: #ffffff;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+        }
+        .header {
+            background-color: #1e293b;
+            color: #ffffff;
+            padding: 24px;
+            text-align: center;
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 22px;
+            letter-spacing: 0.5px;
+        }
+        .content {
+            padding: 30px;
+        }
+        .greeting {
+            font-size: 16px;
+            margin-bottom: 20px;
+        }
+        .order-box {
+            background-color: #f8fafc;
+            border-left: 4px solid #10b981;
+            padding: 16px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+        .order-number {
+            font-weight: bold;
+            color: #0f172a;
+            font-size: 16px;
+        }
+        .order-total {
+            margin-top: 8px;
+            font-size: 18px;
+            color: #059669;
+            font-weight: bold;
+        }
+        .items-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+        }
+        .items-table th, .items-table td {
+            padding: 10px;
+            border-bottom: 1px solid #e2e8f0;
+            text-align: left;
+            font-size: 14px;
+        }
+        .items-table th {
+            background-color: #f8fafc;
+            color: #64748b;
+        }
+        .footer {
+            background-color: #f8fafc;
+            color: #64748b;
+            text-align: center;
+            padding: 20px;
+            font-size: 12px;
+            border-top: 1px solid #e2e8f0;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="header">
+        <h1>Merci pour votre commande !</h1>
+    </div>
+    <div class="content">
+        <p class="greeting">Bonjour <span th:text="${customerName}">Client</span>,</p>
+        <p>Nous avons le plaisir de vous confirmer la bonne réception et le paiement de votre commande.</p>
+
+        <div class="order-box">
+            <div class="order-number">Numéro de commande : <span th:text="${orderNumber}">CMD-000000</span></div>
+            <div class="order-total">Montant total TTC : <span th:text="${totalAmount}">0,00 €</span></div>
+        </div>
+
+        <div th:if="${items != null and not #lists.isEmpty(items)}">
+            <h3>Détail des articles commandés</h3>
+            <table class="items-table">
+                <thead>
+                <tr>
+                    <th>Référence Variante</th>
+                    <th style="text-align: right;">Quantité</th>
+                </tr>
+                </thead>
+                <tbody>
+                <tr th:each="item : ${items}">
+                    <td>Variante #<span th:text="${item.variantId()}">1</span></td>
+                    <td style="text-align: right;" th:text="${item.quantity()}">1</td>
+                </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <p>Votre commande est actuellement en cours de préparation par nos équipes logistiques. Vous recevrez un nouvel e-mail dès qu'elle aura été remise au transporteur.</p>
+    </div>
+    <div class="footer">
+        <p>&copy; <span th:text="${year}">2026</span> E-Commerce - Tous droits réservés.</p>
+        <p>Ceci est un e-mail automatique, merci de ne pas y répondre directement.</p>
+    </div>
+</div>
+</body>
+</html>

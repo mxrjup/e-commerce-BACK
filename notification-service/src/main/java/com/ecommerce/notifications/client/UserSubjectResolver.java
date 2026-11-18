@@ -50,6 +50,44 @@ public class UserSubjectResolver {
         }
     }
 
+    public Optional<UserDetails> resolveUserDetails(Long userId) {
+        if (userId == null) {
+            return Optional.empty();
+        }
+
+        try {
+            UserDetails response = restClient.get()
+                    .uri("/api/internal/users/{id}", userId)
+                    .header("X-MCP-Service-Key", internalReadKey)
+                    .retrieve()
+                    .body(UserDetails.class);
+
+            if (response == null || response.email() == null || response.email().isBlank()) {
+                log.warn("Aucun email trouvé pour userId={}", userId);
+                return Optional.empty();
+            }
+            return Optional.of(response);
+        } catch (HttpClientErrorException e) {
+            if (e.getStatusCode() == HttpStatus.NOT_FOUND) {
+                log.warn("Utilisateur introuvable dans user-service (userId={}), email ignoré.", userId);
+                return Optional.empty();
+            }
+            throw e;
+        }
+    }
+
     public record UserSubjectResponse(Long id, String subject) {
+    }
+
+    public record UserDetails(Long id, String email, String firstName, String lastName) {
+        public String displayName() {
+            if (firstName != null && !firstName.isBlank()) {
+                return firstName;
+            }
+            if (lastName != null && !lastName.isBlank()) {
+                return lastName;
+            }
+            return email;
+        }
     }
 }

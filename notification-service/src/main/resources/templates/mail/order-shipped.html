@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="fr" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Commande expédiée</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background-color: #f4f5f7;
+            margin: 0;
+            padding: 20px;
+            color: #333333;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            background-color: #ffffff;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+        }
+        .header {
+            background-color: #0284c7;
+            color: #ffffff;
+            padding: 24px;
+            text-align: center;
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 22px;
+            letter-spacing: 0.5px;
+        }
+        .content {
+            padding: 30px;
+        }
+        .greeting {
+            font-size: 16px;
+            margin-bottom: 20px;
+        }
+        .shipping-box {
+            background-color: #f0f9ff;
+            border-left: 4px solid #0284c7;
+            padding: 16px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+        .order-number {
+            font-weight: bold;
+            color: #0f172a;
+            font-size: 16px;
+            margin-bottom: 8px;
+        }
+        .shipping-detail {
+            font-size: 14px;
+            color: #334155;
+            margin: 4px 0;
+        }
+        .tracking {
+            font-weight: 600;
+            color: #0369a1;
+        }
+        .footer {
+            background-color: #f8fafc;
+            color: #64748b;
+            text-align: center;
+            padding: 20px;
+            font-size: 12px;
+            border-top: 1px solid #e2e8f0;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="header">
+        <h1>Votre commande est en route !</h1>
+    </div>
+    <div class="content">
+        <p class="greeting">Bonjour <span th:text="${customerName}">Client</span>,</p>
+        <p>Bonne nouvelle : votre colis vient d'être expédié et a été pris en charge par notre transporteur.</p>
+
+        <div class="shipping-box">
+            <div class="order-number">Commande : <span th:text="${orderNumber}">CMD-000000</span></div>
+            <div class="shipping-detail">Transporteur : <strong th:text="${carrier}">Transporteur</strong></div>
+            <div class="shipping-detail" th:if="${trackingNumber != null}">
+                Numéro de suivi : <span class="tracking" th:text="${trackingNumber}">TRK123456789</span>
+            </div>
+        </div>
+
+        <p>Vous pourrez suivre l'acheminement de votre colis directement depuis votre espace client ou sur le site du transporteur muni de votre numéro de suivi.</p>
+    </div>
+    <div class="footer">
+        <p>&copy; <span th:text="${year}">2026</span> E-Commerce - Tous droits réservés.</p>
+        <p>Ceci est un e-mail automatique, merci de ne pas y répondre directement.</p>
+    </div>
+</div>
+</body>
+</html>
