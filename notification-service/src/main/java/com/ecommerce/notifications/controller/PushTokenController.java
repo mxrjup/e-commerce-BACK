@@ -13,7 +13,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 
 @RestController
-@RequestMapping("/api/notifications/push-tokens")
+@RequestMapping("/api/v1/notifications/push-tokens")
 @RequiredArgsConstructor
 public class PushTokenController {
 

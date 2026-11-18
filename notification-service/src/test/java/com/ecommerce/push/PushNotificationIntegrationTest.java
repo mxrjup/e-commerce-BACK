@@ -75,7 +75,7 @@ class PushNotificationIntegrationTest {
                 .platform("android")
                 .build();
 
-        mockMvc.perform(post("/api/notifications/push-tokens")
+        mockMvc.perform(post("/api/v1/notifications/push-tokens")
                         .with(jwt().jwt(token -> token.subject(USER_SUB)))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
@@ -86,7 +86,7 @@ class PushNotificationIntegrationTest {
 
         assertThat(tokenRepository.findByRecipientIdAndActiveTrue(USER_SUB)).hasSize(1);
 
-        mockMvc.perform(get("/api/notifications/push-tokens")
+        mockMvc.perform(get("/api/v1/notifications/push-tokens")
                         .with(jwt().jwt(token -> token.subject(USER_SUB))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(1))
@@ -100,7 +100,7 @@ class PushNotificationIntegrationTest {
                 .platform("ios")
                 .build();
 
-        mockMvc.perform(post("/api/notifications/push-tokens")
+        mockMvc.perform(post("/api/v1/notifications/push-tokens")
                         .with(jwt().jwt(token -> token.subject(USER_SUB)))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(invalidRequest)))
@@ -172,7 +172,7 @@ class PushNotificationIntegrationTest {
                 .active(true)
                 .build());
 
-        mockMvc.perform(delete("/api/notifications/push-tokens")
+        mockMvc.perform(delete("/api/v1/notifications/push-tokens")
                         .with(jwt().jwt(token -> token.subject(USER_SUB)))
                         .param("expoToken", VALID_TOKEN))
                 .andExpect(status().isNoContent());

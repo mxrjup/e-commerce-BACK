@@ -21,6 +21,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.context.ApplicationEventPublisher;
+import com.ecommerce.notifications.event.PushNotificationRequestedEvent;
 
 import java.text.NumberFormat;
 import java.time.Instant;
@@ -37,7 +39,7 @@ public class CatalogAlertService {
     private final CatalogAlertSubscriptionRepository alertRepository;
     private final NotificationRepository notificationRepository;
     private final ProcessedKafkaEventRepository processedKafkaEventRepository;
-    private final PushNotificationService pushNotificationService;
+    private final ApplicationEventPublisher eventPublisher;
 
     @Transactional
     public CatalogAlertResponseDto createAlert(String recipientId, CreateCatalogAlertRequestDto request) {
@@ -148,12 +150,12 @@ public class CatalogAlertService {
             alertRepository.save(subscription);
 
             Long effectiveProductId = event.productId() != null ? event.productId() : subscription.getProductId();
-            pushNotificationService.sendPushToUser(
+            eventPublisher.publishEvent(new PushNotificationRequestedEvent(
                     subscription.getRecipientId(),
                     title,
                     message,
                     buildAlertPushData(saved.getId(), effectiveProductId, event.variantId())
-            );
+            ));
             notifiedCount++;
         }
 
@@ -200,12 +202,12 @@ public class CatalogAlertService {
             alertRepository.save(subscription);
 
             Long effectiveProductId = event.productId() != null ? event.productId() : subscription.getProductId();
-            pushNotificationService.sendPushToUser(
+            eventPublisher.publishEvent(new PushNotificationRequestedEvent(
                     subscription.getRecipientId(),
                     title,
                     message,
                     buildAlertPushData(saved.getId(), effectiveProductId, event.variantId())
-            );
+            ));
             notifiedCount++;
         }
 

@@ -14,6 +14,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.context.ApplicationEventPublisher;
+import com.ecommerce.notifications.event.PushNotificationRequestedEvent;
 
 import java.time.Instant;
 import java.util.List;
@@ -27,7 +29,7 @@ public class NotificationService {
 
     private final NotificationRepository notificationRepository;
     private final ProcessedKafkaEventRepository processedKafkaEventRepository;
-    private final PushNotificationService pushNotificationService;
+    private final ApplicationEventPublisher eventPublisher;     
 
     @Transactional(readOnly = true)
     public List<NotificationResponseDto> getUserNotifications(String recipientId, boolean unreadOnly) {
@@ -95,7 +97,7 @@ public class NotificationService {
                         .build()
         );
 
-        pushNotificationService.sendPushToUser(
+        eventPublisher.publishEvent(new PushNotificationRequestedEvent(
                 recipientId,
                 title,
                 message,
@@ -103,7 +105,7 @@ public class NotificationService {
                         "notificationId", saved.getId(),
                         "type", type.name()
                 )
-        );
+        ));
     }
 
     /**
