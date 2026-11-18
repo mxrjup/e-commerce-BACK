@@ -27,7 +27,6 @@ public class NotificationKafkaConsumers {
     private final NotificationService notificationService;
     private final CatalogAlertService catalogAlertService;
     private final UserSubjectResolver userSubjectResolver;
-    private final CatalogAlertService catalogAlertService;
 
     @KafkaListener(topics = "${app.kafka.topics.order-paid:" + KafkaTopics.ORDER_PAID + "}")
     public void onOrderPaid(OrderPaidEvent event) {
@@ -51,22 +50,6 @@ public class NotificationKafkaConsumers {
                 "Commande confirmée",
                 "Votre commande " + event.orderNumber() + amountText + " a bien été payée et est en cours de préparation."
         );
-    }
-
-    @KafkaListener(topics = "${app.kafka.topics.catalog-events:" + KafkaTopics.CATALOG_EVENTS + "}")
-    public void onCatalogEvent(CatalogEvent event) {
-        switch (event) {
-            case PriceDroppedEvent drop -> {
-                int count = catalogAlertService.handlePriceDropped(drop);
-                log.info("PriceDroppedEvent traité (variantId={}, notificationsCréées={})",
-                        drop.variantId(), count);
-            }
-            case BackInStockEvent restock -> {
-                int count = catalogAlertService.handleBackInStock(restock);
-                log.info("BackInStockEvent traité (variantId={}, notificationsCréées={})",
-                        restock.variantId(), count);
-            }
-        }
     }
 
     @KafkaListener(topics = "${app.kafka.topics.catalog-events:" + KafkaTopics.CATALOG_EVENTS + "}")

@@ -73,17 +73,16 @@ class NotificationKafkaConsumersIntegrationTest {
     private ProcessedKafkaEventRepository processedKafkaEventRepository;
 
     @Autowired
-<<<<<<< HEAD:notification-service/src/test/java/com/ecommerce/notifications/kafka/NotificationKafkaConsumersIntegrationTest.java
     private NotificationService notificationService;
 
-    @MockBean
+    @MockBeanclear
     private JwtDecoder jwtDecoder;
 
     @MockBean
     private UserSubjectResolver userSubjectResolver;
-=======
+
+    @Autowired
     private CatalogAlertSubscriptionRepository catalogAlertSubscriptionRepository;
->>>>>>> 0bbf0fe (feat(notifications): enhance catalog alert functionality with new tests and integration for price drop and back in stock events):notification-service/src/test/java/com/ecommerce/notifications/kafka/NotificationKafkaConsumersIT.java
 
     @BeforeEach
     void setUp() {
