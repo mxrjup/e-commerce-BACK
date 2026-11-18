@@ -24,6 +24,8 @@ public class InternalCatalogService {
 
     /** Enough for any cart or order, small enough to keep one query cheap. */
     static final int MAX_IDS = 100;
+    public static final int DEFAULT_ACCESSORY_LIMIT = 8;
+    static final int MAX_ACCESSORY_LIMIT = 20;
 
     private final VariantRepository variantRepository;
 
@@ -57,5 +59,50 @@ public class InternalCatalogService {
                 .filter(Objects::nonNull)
                 .map(InternalVariantResponse::from)
                 .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<InternalVariantResponse> accessoryVariants(List<Long> ids, int limit) {
+        Set<Long> wanted = ids == null ? Set.of()
+                : ids.stream().filter(Objects::nonNull).collect(Collectors.toCollection(LinkedHashSet::new));
+        if (wanted.isEmpty()) {
+            throw new BadRequestException("ids must contain at least one variant id");
+        }
+        if (wanted.size() > MAX_IDS) {
+            throw new BadRequestException("ids must contain at most " + MAX_IDS + " variant ids");
+        }
+        if (limit < 1 || limit > MAX_ACCESSORY_LIMIT) {
+            throw new BadRequestException("limit must be between 1 and " + MAX_ACCESSORY_LIMIT);
+        }
+
+        Map<Long, Variant> cartVariants = variantRepository.findWithDetailsByIdIn(wanted).stream()
+                .collect(Collectors.toMap(Variant::getId, Function.identity()));
+
+        Set<Long> cartProductIds = wanted.stream()
+                .map(cartVariants::get)
+                .filter(Objects::nonNull)
+                .map(variant -> variant.getProduct().getId())
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+
+        if (cartProductIds.isEmpty()) {
+            return List.of();
+        }
+
+        List<InternalVariantResponse> candidates = variantRepository
+                .findAccessoryVariantsBySourceProductIds(cartProductIds).stream()
+                .map(InternalVariantResponse::from)
+                .filter(InternalVariantResponse::available)
+                .filter(variant -> !wanted.contains(variant.id()))
+                .filter(variant -> !cartProductIds.contains(variant.productId()))
+                .toList();
+
+        Map<Long, InternalVariantResponse> byAccessoryProduct = new java.util.LinkedHashMap<>();
+        for (InternalVariantResponse candidate : candidates) {
+            byAccessoryProduct.putIfAbsent(candidate.productId(), candidate);
+            if (byAccessoryProduct.size() >= limit) {
+                break;
+            }
+        }
+        return List.copyOf(byAccessoryProduct.values());
     }
 }

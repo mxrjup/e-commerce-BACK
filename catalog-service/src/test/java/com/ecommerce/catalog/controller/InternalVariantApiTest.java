@@ -21,6 +21,7 @@ import java.util.stream.IntStream;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.hasSize;
+import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -151,6 +152,39 @@ class InternalVariantApiTest {
                 .andExpect(jsonPath("$.message").value("ids must contain at most 100 variant ids"));
 
         mockMvc.perform(get(VARIANTS).param("ids", "abc")).andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void shouldSuggestAccessoryVariantsFromProductAssociations() throws Exception {
+        jdbcTemplate.update("""
+            INSERT INTO produit_accessoire (produit_id, accessoire_produit_id)
+            SELECT source.id, accessory.id
+            FROM produit source, produit accessory
+            WHERE source.slug = ? AND accessory.slug = ?
+            """, "logitech-g915-tkl", "logitech-g502-x");
+        jdbcTemplate.update("""
+            INSERT INTO produit_accessoire (produit_id, accessoire_produit_id)
+            SELECT source.id, accessory.id
+            FROM produit source, produit accessory
+            WHERE source.slug = ? AND accessory.slug = ?
+            """, "logitech-g915-tkl", "corsair-vengeance-rgb-ddr5");
+
+        long sourceVariant = idOf("LOGI-G915TKL-AZ-NOI");
+
+        mockMvc.perform(get(VARIANTS + "/accessories").param("ids", String.valueOf(sourceVariant)))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$[*].sku", contains("LOGI-G502X-NOI")));
+    }
+
+    @Test
+    void shouldRefuseInvalidAccessoryLimit() throws Exception {
+        long sourceVariant = idOf("LOGI-G915TKL-AZ-NOI");
+
+        mockMvc.perform(get(VARIANTS + "/accessories")
+                .param("ids", String.valueOf(sourceVariant))
+                .param("limit", "0"))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.message", not(nullValue())));
     }
 
     private long idOf(String sku) {
