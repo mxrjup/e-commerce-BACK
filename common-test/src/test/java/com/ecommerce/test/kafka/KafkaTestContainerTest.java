@@ -47,9 +47,10 @@ class KafkaTestContainerTest extends KafkaIntegrationTest {
 
             assertThat(topics).contains(
                     KafkaTopics.ORDER_PAID, KafkaTopics.deadLetterTopicOf(KafkaTopics.ORDER_PAID),
+                    KafkaTopics.ORDER_STATUS_CHANGED, KafkaTopics.deadLetterTopicOf(KafkaTopics.ORDER_STATUS_CHANGED),
                     KafkaTopics.CATALOG_EVENTS, KafkaTopics.deadLetterTopicOf(KafkaTopics.CATALOG_EVENTS),
                     KafkaTopics.SUPPORT_ADMIN_REPLY, KafkaTopics.deadLetterTopicOf(KafkaTopics.SUPPORT_ADMIN_REPLY));
-            assertThat(topics).allMatch(topic -> topic.startsWith("__") || topic.contains("."));
+            assertThat(topics).allMatch(topic -> topic.startsWith("__") || topic.matches("^[a-z0-9]+([.-][a-z0-9]+)+$"));
         }
     }
 
