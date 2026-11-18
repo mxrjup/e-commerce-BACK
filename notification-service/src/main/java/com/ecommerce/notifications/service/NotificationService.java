@@ -65,9 +65,11 @@ public class NotificationService {
     /**
      * Crée et persiste une notification issue d'un événement Kafka de manière idempotente.
      * Si l'eventId a déjà été traité, l'appel est ignoré sans créer de doublon.
+     *
+     * @return {@code true} si la notification a été créée, {@code false} si l'événement avait déjà été traité
      */
     @Transactional
-    public void createFromEvent(
+    public boolean createFromEvent(
             UUID eventId,
             String topic,
             String recipientId,
@@ -76,7 +78,7 @@ public class NotificationService {
             String message) {
         if (processedKafkaEventRepository.existsById(eventId)) {
             log.debug("Événement Kafka déjà traité (eventId={}, topic={}), ignoré.", eventId, topic);
-            return;
+            return false;
         }
 
         Notification saved = notificationRepository.save(
@@ -106,6 +108,8 @@ public class NotificationService {
                         "type", type.name()
                 )
         ));
+
+        return true;
     }
 
     /**

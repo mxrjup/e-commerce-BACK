@@ -27,11 +27,25 @@ spring:
     oauth2:
       resourceserver:
         jwt:
-          # Comme la gateway : l'issuer est l'URL frontale de Keycloak, celle
-          # que contient le jeton ; les cles se recuperent sur l'URL joignable
-          # depuis le reseau du service.
           issuer-uri: ${KEYCLOAK_ISSUER_URI:http://localhost:8180/realms/ecommerce}
           jwk-set-uri: ${KEYCLOAK_JWK_SET_URI:http://localhost:8180/realms/ecommerce/protocol/openid-connect/certs}
+
+  mail:
+    host: ${SPRING_MAIL_HOST:localhost}
+    port: ${SPRING_MAIL_PORT:1025}
+    username: ${SPRING_MAIL_USERNAME:}
+    password: ${SPRING_MAIL_PASSWORD:}
+    properties:
+      mail:
+        smtp:
+          auth: ${SPRING_MAIL_AUTH:false}
+          starttls:
+            enable: ${SPRING_MAIL_STARTTLS:false}
+
+app:
+  mail:
+    enabled: ${APP_MAIL_ENABLED:true}
+    from: ${APP_MAIL_FROM:no-reply@ecommerce.local}
 
 keycloak:
   admin:
@@ -75,21 +89,3 @@ spring:
     hibernate:
       ddl-auto: create-drop
     show-sql: true
-
-  mail:
-    host: ${SPRING_MAIL_HOST:localhost}
-    port: ${SPRING_MAIL_PORT:1025}
-    username: ${SPRING_MAIL_USERNAME:}
-    password: ${SPRING_MAIL_PASSWORD:}
-    properties:
-      mail:
-        smtp:
-          auth: ${SPRING_MAIL_AUTH:false}
-          starttls:
-            enable: ${SPRING_MAIL_STARTTLS:false}
-
-app:
-  mail:
-    enabled: ${APP_MAIL_ENABLED:true}
-    from: ${APP_MAIL_FROM:no-reply@ecommerce.local}
-  
