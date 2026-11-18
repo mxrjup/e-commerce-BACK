@@ -114,7 +114,7 @@ public class CatalogAlertService {
             return 0;
         }
 
-        List<CatalogAlertSubscription> subscriptions = subscriptionRepository
+        List<CatalogAlertSubscription> subscriptions = alertRepository
                 .findByVariantIdAndAlertTypeAndActiveTrue(event.variantId(), CatalogAlertType.PRICE_DROP);
 
         int notifiedCount = 0;
@@ -142,7 +142,7 @@ public class CatalogAlertService {
 
             subscription.setActive(false);
             subscription.setTriggeredAt(now);
-            subscriptionRepository.save(subscription);
+            alertRepository.save(subscription);
 
             pushNotificationService.sendPushToUser(
                     subscription.getRecipientId(),
@@ -176,7 +176,7 @@ public class CatalogAlertService {
             return 0;
         }
 
-        List<CatalogAlertSubscription> subscriptions = subscriptionRepository
+        List<CatalogAlertSubscription> subscriptions = alertRepository
                 .findByVariantIdAndAlertTypeAndActiveTrue(event.variantId(), CatalogAlertType.BACK_IN_STOCK);
 
         int notifiedCount = 0;
@@ -198,7 +198,7 @@ public class CatalogAlertService {
 
             subscription.setActive(false);
             subscription.setTriggeredAt(now);
-            subscriptionRepository.save(subscription);
+            alertRepository.save(subscription);
 
             pushNotificationService.sendPushToUser(
                     subscription.getRecipientId(),
