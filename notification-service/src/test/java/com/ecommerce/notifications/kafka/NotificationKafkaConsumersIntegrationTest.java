@@ -75,7 +75,7 @@ class NotificationKafkaConsumersIntegrationTest {
     @Autowired
     private NotificationService notificationService;
 
-    @MockBeanclear
+    @MockBean
     private JwtDecoder jwtDecoder;
 
     @MockBean
