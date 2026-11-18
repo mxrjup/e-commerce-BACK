@@ -63,32 +63,45 @@ public class NotificationService {
      * Si l'eventId a déjà été traité, l'appel est ignoré sans créer de doublon.
      */
     @Transactional
-    public boolean createFromEvent(UUID eventId,
-                                   String topic,
-                                   String recipientId,
-                                   NotificationType type,
-                                   String title,
-                                   String message) {
-        if (eventId != null && processedKafkaEventRepository.existsById(eventId)) {
+    public void createFromEvent(
+            UUID eventId,
+            String topic,
+            String recipientId,
+            NotificationType type,
+            String title,
+            String message) {
+        if (processedKafkaEventRepository.existsById(eventId)) {
             log.debug("Événement Kafka déjà traité (eventId={}, topic={}), ignoré.", eventId, topic);
-            return false;
+            return;
         }
 
-        Notification notification = Notification.builder()
-                .recipientId(recipientId)
-                .type(type)
-                .title(title)
-                .message(message)
-                .build();
-        notificationRepository.save(notification);
+        Notification saved = notificationRepository.save(
+                Notification.builder()
+                        .recipientId(recipientId)
+                        .type(type)
+                        .title(title)
+                        .message(message)
+                        .read(false)
+                        .build()
+        );
 
-        if (eventId != null) {
-            processedKafkaEventRepository.save(ProcessedKafkaEvent.builder()
-                    .eventId(eventId)
-                    .topic(topic)
-                    .build());
-        }
-        return true;
+        processedKafkaEventRepository.save(
+                ProcessedKafkaEvent.builder()
+                        .eventId(eventId)
+                        .topic(topic)
+                        .processedAt(Instant.now())
+                        .build()
+        );
+
+        pushNotificationService.sendPushToUser(
+                recipientId,
+                title,
+                message,
+                Map.of(
+                        "notificationId", saved.getId(),
+                        "type", type.name()
+                )
+        );
     }
 
     /**
