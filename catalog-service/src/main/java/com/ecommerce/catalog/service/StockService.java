@@ -14,6 +14,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -97,6 +98,55 @@ public class StockService {
                         + line.getValue() + " units in stock");
             }
         }
+    }
+
+    /**
+     * A line of a paid order that the stock could not fully cover.
+     *
+     * @param taken what was actually taken: the whole remaining stock, possibly 0
+     */
+    public record Shortage(Long variantId, int ordered, int taken, boolean unknownVariant) {
+
+        public int missing() {
+            return ordered - taken;
+        }
+    }
+
+    /**
+     * Takes a paid order out of the stock (C21). Unlike {@link #decrement},
+     * nothing is refused: the customer has already paid. A line the stock
+     * cannot fully cover takes what remains, the stock stops at zero, and the
+     * line comes back as a {@link Shortage} for the caller to report.
+     *
+     * <p>Each row is locked before it is read, in variant id order, so two
+     * paid orders sharing variants never interleave nor deadlock.
+     *
+     * @param quantities variant id to quantity; lines below 1 are ignored
+     * @return the lines that could not be fully served, empty when all were
+     */
+    @Transactional
+    public List<Shortage> takePaidOrder(Map<Long, Integer> quantities) {
+        Instant now = now();
+        List<Shortage> shortages = new ArrayList<>();
+        for (Map.Entry<Long, Integer> line : new TreeMap<>(quantities).entrySet()) {
+            int ordered = line.getValue() == null ? 0 : line.getValue();
+            if (ordered < 1) {
+                continue;
+            }
+            Integer stock = variantRepository.lockStock(line.getKey()).orElse(null);
+            if (stock == null) {
+                shortages.add(new Shortage(line.getKey(), ordered, 0, true));
+                continue;
+            }
+            int taken = Math.min(stock, ordered);
+            if (taken > 0) {
+                variantRepository.addToStock(line.getKey(), -taken, now);
+            }
+            if (taken < ordered) {
+                shortages.add(new Shortage(line.getKey(), ordered, taken, false));
+            }
+        }
+        return shortages;
     }
 
     private void requireExisting(Long variantId) {

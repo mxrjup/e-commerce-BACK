@@ -1,10 +1,12 @@
 package com.ecommerce.catalog.repository;
 
 import com.ecommerce.catalog.entity.Variant;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -54,6 +56,15 @@ public interface VariantRepository extends JpaRepository<Variant, Long> {
     @Query("update Variant v set v.stock = v.stock + :delta, v.updatedAt = :now"
             + " where v.id = :id and v.stock + :delta >= 0")
     int addToStock(@Param("id") Long id, @Param("delta") int delta, @Param("now") Instant now);
+
+    /**
+     * The stock of a variant, with its row locked until the end of the
+     * transaction: no other order can take units between this read and the
+     * update that follows it.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select v.stock from Variant v where v.id = :id")
+    Optional<Integer> lockStock(@Param("id") Long id);
 
     @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query("update Variant v set v.alertThreshold = :threshold, v.updatedAt = :now where v.id = :id")

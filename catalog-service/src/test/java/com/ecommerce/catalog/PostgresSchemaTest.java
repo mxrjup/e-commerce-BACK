@@ -61,9 +61,9 @@ class PostgresSchemaTest {
 
     @Test
     void shouldMigrateValidateAndLoadTheDemoCatalogue() {
-        // Le contexte a demarre : Flyway a joue V1, V2 et V3, et Hibernate a valide le schema.
+        // Le contexte a demarre : Flyway a joue V1 a V4, et Hibernate a valide le schema.
         assertThat(jdbcTemplate.queryForObject("SELECT MAX(version) FROM flyway_schema_history", String.class))
-                .isEqualTo("3");
+                .isEqualTo("4");
         assertThat(productRepository.count()).isEqualTo(19);
     }
 
@@ -117,5 +117,30 @@ class PostgresSchemaTest {
         assertThat(stockService.inventory("%", false, 0, 20).totalElements()).isZero();
         assertThat(stockService.inventory(null, true, 0, 20).content())
                 .allMatch(line -> line.lowStock());
+    }
+
+    /** C21 on PostgreSQL's row locks: 10 paid orders for 2 units take 2, report 8 short, never go below zero. */
+    @Test
+    void shouldTakeConcurrentPaidOrdersWithoutGoingBelowZero() throws Exception {
+        Long id = jdbcTemplate.queryForObject("SELECT id FROM variante WHERE sku = 'LG-27GR95QE'", Long.class);
+        int orders = 10;
+        ExecutorService pool = Executors.newFixedThreadPool(orders);
+        CountDownLatch start = new CountDownLatch(1);
+        List<Future<List<StockService.Shortage>>> results = new ArrayList<>();
+        for (int i = 0; i < orders; i++) {
+            results.add(pool.submit(() -> {
+                start.await();
+                return stockService.takePaidOrder(Map.of(id, 1));
+            }));
+        }
+        start.countDown();
+        int short_ = 0;
+        for (Future<List<StockService.Shortage>> result : results) {
+            short_ += result.get(30, TimeUnit.SECONDS).size();
+        }
+        pool.shutdown();
+
+        assertThat(short_).isEqualTo(8);
+        assertThat(jdbcTemplate.queryForObject("SELECT stock FROM variante WHERE id = ?", Integer.class, id)).isZero();
     }
 }
