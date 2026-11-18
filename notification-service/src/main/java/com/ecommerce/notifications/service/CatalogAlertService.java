@@ -21,10 +21,15 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.context.ApplicationEventPublisher;
+import com.ecommerce.notifications.event.PushNotificationRequestedEvent;
 
 import java.text.NumberFormat;
+import java.time.Instant;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 
 @Slf4j
 @Service
@@ -34,6 +39,7 @@ public class CatalogAlertService {
     private final CatalogAlertSubscriptionRepository alertRepository;
     private final NotificationRepository notificationRepository;
     private final ProcessedKafkaEventRepository processedKafkaEventRepository;
+    private final ApplicationEventPublisher eventPublisher;
 
     @Transactional
     public CatalogAlertResponseDto createAlert(String recipientId, CreateCatalogAlertRequestDto request) {
@@ -106,72 +112,129 @@ public class CatalogAlertService {
 
     @Transactional
     public int handlePriceDropped(PriceDroppedEvent event) {
-        if (event.eventId() != null && processedKafkaEventRepository.existsById(event.eventId())) {
-            log.debug("Événement PriceDroppedEvent déjà traité (eventId={}), ignoré.", event.eventId());
+        if (processedKafkaEventRepository.existsById(event.eventId())) {
+            log.debug("PriceDroppedEvent déjà traité (eventId={}), ignoré.", event.eventId());
             return 0;
         }
 
         List<CatalogAlertSubscription> subscriptions = alertRepository
                 .findByVariantIdAndAlertTypeAndActiveTrue(event.variantId(), CatalogAlertType.PRICE_DROP);
 
-        NumberFormat currency = NumberFormat.getCurrencyInstance(Locale.FRANCE);
-        int triggeredCount = 0;
+        int notifiedCount = 0;
+        Instant now = Instant.now();
+        NumberFormat currencyFormat = NumberFormat.getCurrencyInstance(Locale.FRANCE);
 
         for (CatalogAlertSubscription subscription : subscriptions) {
-            boolean matchesTarget = subscription.getTargetPriceExclTax() == null
-                    || event.newUnitPriceExclTax().compareTo(subscription.getTargetPriceExclTax()) <= 0;
-
-            if (!matchesTarget) {
+            if (subscription.getTargetPriceExclTax() != null
+                    && event.newUnitPriceExclTax().compareTo(subscription.getTargetPriceExclTax()) > 0) {
                 continue;
             }
 
-            Notification notification = Notification.builder()
-                    .recipientId(subscription.getRecipientId())
-                    .type(NotificationType.VARIANT_ALERT)
-                    .title("Baisse de prix sur un article suivi")
-                    .message("Le prix de la variante #" + event.variantId()
-                            + " est passé de " + currency.format(event.previousUnitPriceExclTax())
-                            + " à " + currency.format(event.newUnitPriceExclTax()) + " HT.")
-                    .build();
-            notificationRepository.save(notification);
+            String title = "Baisse de prix sur un produit suivi";
+            String message = "Le prix d'un produit que vous suivez est passé de "
+                    + currencyFormat.format(event.previousUnitPriceExclTax()) + " HT à "
+                    + currencyFormat.format(event.newUnitPriceExclTax()) + " HT.";
 
-            subscription.markTriggered();
+            Notification saved = notificationRepository.save(
+                    Notification.builder()
+                            .recipientId(subscription.getRecipientId())
+                            .type(NotificationType.VARIANT_ALERT)
+                            .title(title)
+                            .message(message)
+                            .read(false)
+                            .build()
+            );
+
+            subscription.setActive(false);
+            subscription.setTriggeredAt(now);
             alertRepository.save(subscription);
-            triggeredCount++;
+
+            Long effectiveProductId = event.productId() != null ? event.productId() : subscription.getProductId();
+            eventPublisher.publishEvent(new PushNotificationRequestedEvent(
+                    subscription.getRecipientId(),
+                    title,
+                    message,
+                    buildAlertPushData(saved.getId(), effectiveProductId, event.variantId())
+            ));
+            notifiedCount++;
         }
 
-        markEventProcessed(event.eventId());
-        return triggeredCount;
+        processedKafkaEventRepository.save(
+                ProcessedKafkaEvent.builder()
+                        .eventId(event.eventId())
+                        .topic(KafkaTopics.CATALOG_EVENTS)
+                        .processedAt(now)
+                        .build()
+        );
+
+        return notifiedCount;
     }
 
     @Transactional
     public int handleBackInStock(BackInStockEvent event) {
-        if (event.eventId() != null && processedKafkaEventRepository.existsById(event.eventId())) {
-            log.debug("Événement BackInStockEvent déjà traité (eventId={}), ignoré.", event.eventId());
+        if (processedKafkaEventRepository.existsById(event.eventId())) {
+            log.debug("BackInStockEvent déjà traité (eventId={}), ignoré.", event.eventId());
             return 0;
         }
 
         List<CatalogAlertSubscription> subscriptions = alertRepository
                 .findByVariantIdAndAlertTypeAndActiveTrue(event.variantId(), CatalogAlertType.BACK_IN_STOCK);
 
-        int triggeredCount = 0;
-        for (CatalogAlertSubscription subscription : subscriptions) {
-            Notification notification = Notification.builder()
-                    .recipientId(subscription.getRecipientId())
-                    .type(NotificationType.VARIANT_ALERT)
-                    .title("Article de nouveau en stock")
-                    .message("Bonne nouvelle : la variante #" + event.variantId()
-                            + " est de nouveau disponible (" + event.availableQuantity() + " en stock).")
-                    .build();
-            notificationRepository.save(notification);
+        int notifiedCount = 0;
+        Instant now = Instant.now();
 
-            subscription.markTriggered();
+        for (CatalogAlertSubscription subscription : subscriptions) {
+            String title = "Produit de nouveau en stock";
+            String message = "Un produit que vous suivez est de nouveau disponible en stock.";
+
+            Notification saved = notificationRepository.save(
+                    Notification.builder()
+                            .recipientId(subscription.getRecipientId())
+                            .type(NotificationType.VARIANT_ALERT)
+                            .title(title)
+                            .message(message)
+                            .read(false)
+                            .build()
+            );
+
+            subscription.setActive(false);
+            subscription.setTriggeredAt(now);
             alertRepository.save(subscription);
-            triggeredCount++;
+
+            Long effectiveProductId = event.productId() != null ? event.productId() : subscription.getProductId();
+            eventPublisher.publishEvent(new PushNotificationRequestedEvent(
+                    subscription.getRecipientId(),
+                    title,
+                    message,
+                    buildAlertPushData(saved.getId(), effectiveProductId, event.variantId())
+            ));
+            notifiedCount++;
         }
 
-        markEventProcessed(event.eventId());
-        return triggeredCount;
+        processedKafkaEventRepository.save(
+                ProcessedKafkaEvent.builder()
+                        .eventId(event.eventId())
+                        .topic(KafkaTopics.CATALOG_EVENTS)
+                        .processedAt(now)
+                        .build()
+        );
+
+        return notifiedCount;
+    }
+
+    private Map<String, Object> buildAlertPushData(Long notificationId, Long productId, Long variantId) {
+        Map<String, Object> data = new HashMap<>();
+        if (notificationId != null) {
+            data.put("notificationId", notificationId);
+        }
+        data.put("type", NotificationType.VARIANT_ALERT.name());
+        if (productId != null) {
+            data.put("productId", productId);
+        }
+        if (variantId != null) {
+            data.put("variantId", variantId);
+        }
+        return data;
     }
 
     private CatalogAlertSubscription findOwnedAlert(Long alertId, String recipientId) {
@@ -182,15 +245,6 @@ public class CatalogAlertService {
     private static void validateTargetPriceForType(CatalogAlertType type, boolean hasTargetPrice) {
         if (hasTargetPrice && type != CatalogAlertType.PRICE_DROP) {
             throw new BadRequestException("targetPriceExclTax is only supported for PRICE_DROP alerts");
-        }
-    }
-
-    private void markEventProcessed(java.util.UUID eventId) {
-        if (eventId != null && !processedKafkaEventRepository.existsById(eventId)) {
-            processedKafkaEventRepository.save(ProcessedKafkaEvent.builder()
-                    .eventId(eventId)
-                    .topic(KafkaTopics.CATALOG_EVENTS)
-                    .build());
         }
     }
 

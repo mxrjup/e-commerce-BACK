@@ -14,10 +14,13 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.context.ApplicationEventPublisher;
+import com.ecommerce.notifications.event.PushNotificationRequestedEvent;
 
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import java.util.Map;
 
 @Slf4j
 @Service
@@ -26,6 +29,7 @@ public class NotificationService {
 
     private final NotificationRepository notificationRepository;
     private final ProcessedKafkaEventRepository processedKafkaEventRepository;
+    private final ApplicationEventPublisher eventPublisher;     
 
     @Transactional(readOnly = true)
     public List<NotificationResponseDto> getUserNotifications(String recipientId, boolean unreadOnly) {
@@ -63,32 +67,45 @@ public class NotificationService {
      * Si l'eventId a déjà été traité, l'appel est ignoré sans créer de doublon.
      */
     @Transactional
-    public boolean createFromEvent(UUID eventId,
-                                   String topic,
-                                   String recipientId,
-                                   NotificationType type,
-                                   String title,
-                                   String message) {
-        if (eventId != null && processedKafkaEventRepository.existsById(eventId)) {
+    public void createFromEvent(
+            UUID eventId,
+            String topic,
+            String recipientId,
+            NotificationType type,
+            String title,
+            String message) {
+        if (processedKafkaEventRepository.existsById(eventId)) {
             log.debug("Événement Kafka déjà traité (eventId={}, topic={}), ignoré.", eventId, topic);
-            return false;
+            return;
         }
 
-        Notification notification = Notification.builder()
-                .recipientId(recipientId)
-                .type(type)
-                .title(title)
-                .message(message)
-                .build();
-        notificationRepository.save(notification);
+        Notification saved = notificationRepository.save(
+                Notification.builder()
+                        .recipientId(recipientId)
+                        .type(type)
+                        .title(title)
+                        .message(message)
+                        .read(false)
+                        .build()
+        );
 
-        if (eventId != null) {
-            processedKafkaEventRepository.save(ProcessedKafkaEvent.builder()
-                    .eventId(eventId)
-                    .topic(topic)
-                    .build());
-        }
-        return true;
+        processedKafkaEventRepository.save(
+                ProcessedKafkaEvent.builder()
+                        .eventId(eventId)
+                        .topic(topic)
+                        .processedAt(Instant.now())
+                        .build()
+        );
+
+        eventPublisher.publishEvent(new PushNotificationRequestedEvent(
+                recipientId,
+                title,
+                message,
+                Map.of(
+                        "notificationId", saved.getId(),
+                        "type", type.name()
+                )
+        ));
     }
 
     /**

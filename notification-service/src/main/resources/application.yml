@@ -49,6 +49,10 @@ services:
   user-service:
     uri: ${USER_SERVICE_URI:http://localhost:8082}
 
+expo:
+  push:
+    enabled: ${EXPO_PUSH_ENABLED:true}
+    api-url: ${EXPO_PUSH_API_URL:https://exp.host/--/api/v2/push/send}
 ---
 spring:
   config:
