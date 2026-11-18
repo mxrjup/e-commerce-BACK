@@ -50,7 +50,7 @@ import static org.mockito.Mockito.when;
         KafkaTopics.CATALOG_EVENTS, KafkaTopics.CATALOG_EVENTS + KafkaTopics.DLT_SUFFIX,
         KafkaTopics.SUPPORT_ADMIN_REPLY, KafkaTopics.SUPPORT_ADMIN_REPLY + KafkaTopics.DLT_SUFFIX
 })
-class NotificationKafkaConsumersTest {
+class NotificationKafkaConsumersIntegrationTest {
 
     private static final String KEYCLOAK_SUB = "7f8b1c2d-4242-4242-8888-abcdef123456";
 
