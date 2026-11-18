@@ -53,4 +53,27 @@ class InternalUserReadTest {
                     .andExpect(status().isForbidden());
         }
     }
+
+    @Test
+    void readsUserSubjectWithValidServiceKey() throws Exception {
+        User user = repository.save(User.builder()
+                .authProviderId("keycloak-sub-999")
+                .email("subject@test")
+                .firstName("Sub")
+                .lastName("Test")
+                .build());
+        try {
+            mvc.perform(get("/api/internal/users/" + user.getId() + "/subject")
+                            .header("X-MCP-Service-Key", "test-read-key"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.id").value(user.getId()))
+                    .andExpect(jsonPath("$.subject").value("keycloak-sub-999"));
+
+            mvc.perform(get("/api/internal/users/999999999/subject")
+                            .header("X-MCP-Service-Key", "test-read-key"))
+                    .andExpect(status().isNotFound());
+        } finally {
+            repository.deleteById(user.getId());
+        }
+    }
 }

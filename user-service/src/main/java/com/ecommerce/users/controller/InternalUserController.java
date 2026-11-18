@@ -42,4 +42,15 @@ public class InternalUserController {
         return new UserPage(result.getContent().stream().map(UserRead::from).toList(), page, size,
                 result.getTotalElements(), result.getTotalPages());
     }
+
+    public record UserSubject(Long id, String subject) {
+    }
+
+    @GetMapping("/{id}/subject")
+    public UserSubject getSubject(@PathVariable Long id) {
+        if (id <= 0) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "ID must be positive");
+        return repository.findById(id)
+                .map(user -> new UserSubject(user.getId(), user.getAuthProviderId()))
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"));
+    }
 }

@@ -3,9 +3,13 @@ package com.ecommerce.notifications.service;
 import com.ecommerce.notifications.dto.NotificationResponseDto;
 import com.ecommerce.notifications.dto.VariantAlertSummaryDto;
 import com.ecommerce.notifications.entity.Notification;
+import com.ecommerce.notifications.entity.NotificationType;
+import com.ecommerce.notifications.entity.ProcessedKafkaEvent;
 import com.ecommerce.notifications.entity.VariantAlert;
 import com.ecommerce.notifications.repository.NotificationRepository;
+import com.ecommerce.notifications.repository.ProcessedKafkaEventRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -13,12 +17,15 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.UUID;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class NotificationService {
 
     private final NotificationRepository notificationRepository;
+    private final ProcessedKafkaEventRepository processedKafkaEventRepository;
 
     @Transactional(readOnly = true)
     public List<NotificationResponseDto> getUserNotifications(String recipientId, boolean unreadOnly) {
@@ -49,6 +56,55 @@ public class NotificationService {
     @Transactional
     public void markAllAsRead(String recipientId) {
         notificationRepository.markAllAsReadByRecipientId(recipientId, Instant.now());
+    }
+
+    /**
+     * Crée et persiste une notification issue d'un événement Kafka de manière idempotente.
+     * Si l'eventId a déjà été traité, l'appel est ignoré sans créer de doublon.
+     */
+    @Transactional
+    public boolean createFromEvent(UUID eventId,
+                                   String topic,
+                                   String recipientId,
+                                   NotificationType type,
+                                   String title,
+                                   String message) {
+        if (eventId != null && processedKafkaEventRepository.existsById(eventId)) {
+            log.debug("Événement Kafka déjà traité (eventId={}, topic={}), ignoré.", eventId, topic);
+            return false;
+        }
+
+        Notification notification = Notification.builder()
+                .recipientId(recipientId)
+                .type(type)
+                .title(title)
+                .message(message)
+                .build();
+        notificationRepository.save(notification);
+
+        if (eventId != null) {
+            processedKafkaEventRepository.save(ProcessedKafkaEvent.builder()
+                    .eventId(eventId)
+                    .topic(topic)
+                    .build());
+        }
+        return true;
+    }
+
+    /**
+     * Marque un événement Kafka comme traité sans créer de notification utilisateur
+     * (ex. commande invité sans userId ou événement catalogue sans abonné actif).
+     */
+    @Transactional
+    public boolean markEventProcessed(UUID eventId, String topic) {
+        if (eventId == null || processedKafkaEventRepository.existsById(eventId)) {
+            return false;
+        }
+        processedKafkaEventRepository.save(ProcessedKafkaEvent.builder()
+                .eventId(eventId)
+                .topic(topic)
+                .build());
+        return true;
     }
 
     private NotificationResponseDto mapToDto(Notification notification) {

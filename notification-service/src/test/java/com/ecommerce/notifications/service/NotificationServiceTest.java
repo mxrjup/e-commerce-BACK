@@ -13,6 +13,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.web.server.ResponseStatusException;
+import com.ecommerce.notifications.repository.ProcessedKafkaEventRepository;
 
 import java.time.Instant;
 import java.util.List;
@@ -28,6 +29,9 @@ class NotificationServiceTest {
 
     @Mock
     private NotificationRepository notificationRepository;
+
+    @Mock
+    private ProcessedKafkaEventRepository processedKafkaEventRepository;
 
     @InjectMocks
     private NotificationService notificationService;
