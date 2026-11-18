@@ -8,6 +8,7 @@ import com.ecommerce.common.event.SupportAdminReplyEvent;
 import com.ecommerce.common.kafka.KafkaTopics;
 import com.ecommerce.notifications.client.UserSubjectResolver;
 import com.ecommerce.notifications.entity.NotificationType;
+import com.ecommerce.notifications.service.CatalogAlertService;
 import com.ecommerce.notifications.service.NotificationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -24,6 +25,7 @@ import java.util.Optional;
 public class NotificationKafkaConsumers {
 
     private final NotificationService notificationService;
+    private final CatalogAlertService catalogAlertService;
     private final UserSubjectResolver userSubjectResolver;
 
     @KafkaListener(topics = "${app.kafka.topics.order-paid:" + KafkaTopics.ORDER_PAID + "}")
@@ -54,14 +56,14 @@ public class NotificationKafkaConsumers {
     public void onCatalogEvent(CatalogEvent event) {
         switch (event) {
             case PriceDroppedEvent drop -> {
-                log.info("Événement catalogue reçu : baisse de prix sur la variante {} ({} -> {})",
-                        drop.variantId(), drop.previousUnitPriceExclTax(), drop.newUnitPriceExclTax());
-                notificationService.markEventProcessed(drop.eventId(), KafkaTopics.CATALOG_EVENTS);
+                int count = catalogAlertService.handlePriceDropped(drop);
+                log.info("PriceDroppedEvent traité (variantId={}, notificationsCréées={})",
+                        drop.variantId(), count);
             }
             case BackInStockEvent restock -> {
-                log.info("Événement catalogue reçu : retour en stock sur la variante {} (quantité={})",
-                        restock.variantId(), restock.availableQuantity());
-                notificationService.markEventProcessed(restock.eventId(), KafkaTopics.CATALOG_EVENTS);
+                int count = catalogAlertService.handleBackInStock(restock);
+                log.info("BackInStockEvent traité (variantId={}, notificationsCréées={})",
+                        restock.variantId(), count);
             }
         }
     }

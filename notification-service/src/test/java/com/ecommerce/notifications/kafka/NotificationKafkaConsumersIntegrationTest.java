@@ -7,8 +7,11 @@ import com.ecommerce.common.event.SupportAdminReplyEvent;
 import com.ecommerce.common.kafka.KafkaTopics;
 import com.ecommerce.notifications.client.UserSubjectResolver;
 import com.ecommerce.notifications.dto.NotificationResponseDto;
+import com.ecommerce.notifications.entity.CatalogAlertSubscription;
+import com.ecommerce.notifications.entity.CatalogAlertType;
 import com.ecommerce.notifications.entity.Notification;
 import com.ecommerce.notifications.entity.NotificationType;
+import com.ecommerce.notifications.repository.CatalogAlertSubscriptionRepository;
 import com.ecommerce.notifications.repository.NotificationRepository;
 import com.ecommerce.notifications.repository.ProcessedKafkaEventRepository;
 import com.ecommerce.notifications.service.NotificationService;
@@ -78,12 +81,16 @@ class NotificationKafkaConsumersIntegrationTest {
     @MockBean
     private UserSubjectResolver userSubjectResolver;
 
+    @Autowired
+    private CatalogAlertSubscriptionRepository catalogAlertSubscriptionRepository;
+
     @BeforeEach
     void setUp() {
         for (MessageListenerContainer container : registry.getListenerContainers()) {
             ContainerTestUtils.waitForAssignment(container, embeddedKafkaBroker.getPartitionsPerTopic());
         }
         notificationRepository.deleteAll();
+        catalogAlertSubscriptionRepository.deleteAll();
         processedKafkaEventRepository.deleteAll();
         when(userSubjectResolver.resolveKeycloakSubject(42L)).thenReturn(Optional.of(KEYCLOAK_SUB));
     }
@@ -142,25 +149,84 @@ class NotificationKafkaConsumersIntegrationTest {
     }
 
     @Test
-    void shouldConsumeCatalogEventsWithoutError() throws Exception {
-        PriceDroppedEvent drop = PriceDroppedEvent.builder()
+    void shouldTriggerMatchingCatalogAlertsAndDeactivateTriggeredSubscriptions() throws Exception {
+        CatalogAlertSubscription alertUserA = catalogAlertSubscriptionRepository.save(
+                CatalogAlertSubscription.builder()
+                        .recipientId("user-a")
+                        .productId(10L)
+                        .variantId(20L)
+                        .alertType(CatalogAlertType.PRICE_DROP)
+                        .targetPriceExclTax(new BigDecimal("40.00"))
+                        .active(true)
+                        .build()
+        );
+        CatalogAlertSubscription alertUserB = catalogAlertSubscriptionRepository.save(
+                CatalogAlertSubscription.builder()
+                        .recipientId("user-b")
+                        .productId(10L)
+                        .variantId(20L)
+                        .alertType(CatalogAlertType.PRICE_DROP)
+                        .targetPriceExclTax(new BigDecimal("25.00"))
+                        .active(true)
+                        .build()
+        );
+        CatalogAlertSubscription alertUserC = catalogAlertSubscriptionRepository.save(
+                CatalogAlertSubscription.builder()
+                        .recipientId("user-c")
+                        .productId(10L)
+                        .variantId(21L)
+                        .alertType(CatalogAlertType.BACK_IN_STOCK)
+                        .active(true)
+                        .build()
+        );
+
+        PriceDroppedEvent priceDrop = PriceDroppedEvent.builder()
                 .productId(10L)
                 .variantId(20L)
                 .previousUnitPriceExclTax(new BigDecimal("50.00"))
                 .newUnitPriceExclTax(new BigDecimal("35.00"))
                 .build();
-        BackInStockEvent restock = BackInStockEvent.builder()
+
+        kafkaTemplate.send(KafkaTopics.CATALOG_EVENTS, "20", priceDrop).get();
+
+        await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> {
+            assertThat(processedKafkaEventRepository.existsById(priceDrop.eventId())).isTrue();
+
+            // user-a (cible 40.00 >= 35.00) : notifié et alerte désactivée
+            List<Notification> userANotifs = notificationRepository.findByRecipientIdOrderByCreatedAtDesc("user-a");
+            assertThat(userANotifs).hasSize(1);
+            assertThat(userANotifs.getFirst().getType()).isEqualTo(NotificationType.VARIANT_ALERT);
+
+            CatalogAlertSubscription updatedA = catalogAlertSubscriptionRepository.findById(alertUserA.getId()).orElseThrow();
+            assertThat(updatedA.isActive()).isFalse();
+            assertThat(updatedA.getTriggeredAt()).isNotNull();
+
+            // user-b (cible 25.00 < 35.00) : non notifié et alerte toujours active
+            assertThat(notificationRepository.findByRecipientIdOrderByCreatedAtDesc("user-b")).isEmpty();
+            CatalogAlertSubscription updatedB = catalogAlertSubscriptionRepository.findById(alertUserB.getId()).orElseThrow();
+            assertThat(updatedB.isActive()).isTrue();
+            assertThat(updatedB.getTriggeredAt()).isNull();
+        });
+
+        BackInStockEvent backInStock = BackInStockEvent.builder()
                 .productId(10L)
                 .variantId(21L)
                 .availableQuantity(12)
                 .build();
 
-        kafkaTemplate.send(KafkaTopics.CATALOG_EVENTS, "20", drop).get();
-        kafkaTemplate.send(KafkaTopics.CATALOG_EVENTS, "21", restock).get();
+        kafkaTemplate.send(KafkaTopics.CATALOG_EVENTS, "21", backInStock).get();
 
         await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> {
-            assertThat(processedKafkaEventRepository.existsById(drop.eventId())).isTrue();
-            assertThat(processedKafkaEventRepository.existsById(restock.eventId())).isTrue();
+            assertThat(processedKafkaEventRepository.existsById(backInStock.eventId())).isTrue();
+
+            // user-c : notifié et alerte désactivée
+            List<Notification> userCNotifs = notificationRepository.findByRecipientIdOrderByCreatedAtDesc("user-c");
+            assertThat(userCNotifs).hasSize(1);
+            assertThat(userCNotifs.getFirst().getType()).isEqualTo(NotificationType.VARIANT_ALERT);
+
+            CatalogAlertSubscription updatedC = catalogAlertSubscriptionRepository.findById(alertUserC.getId()).orElseThrow();
+            assertThat(updatedC.isActive()).isFalse();
+            assertThat(updatedC.getTriggeredAt()).isNotNull();
         });
     }
 }
