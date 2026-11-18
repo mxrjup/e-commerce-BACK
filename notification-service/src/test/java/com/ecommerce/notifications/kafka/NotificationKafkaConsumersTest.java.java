@@ -6,6 +6,7 @@ import com.ecommerce.common.event.PriceDroppedEvent;
 import com.ecommerce.common.event.SupportAdminReplyEvent;
 import com.ecommerce.common.kafka.KafkaTopics;
 import com.ecommerce.notifications.client.UserSubjectResolver;
+import com.ecommerce.notifications.dto.NotificationResponseDto;
 import com.ecommerce.notifications.entity.Notification;
 import com.ecommerce.notifications.entity.NotificationType;
 import com.ecommerce.notifications.repository.NotificationRepository;
@@ -16,14 +17,14 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
-import org.springframework.kafka.core.KafkaTemplate;
-import org.springframework.kafka.test.context.EmbeddedKafka;
-import org.springframework.security.oauth2.jwt.JwtDecoder;
-import org.springframework.test.context.ActiveProfiles;
 import org.springframework.kafka.config.KafkaListenerEndpointRegistry;
+import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.listener.MessageListenerContainer;
 import org.springframework.kafka.test.EmbeddedKafkaBroker;
+import org.springframework.kafka.test.context.EmbeddedKafka;
 import org.springframework.kafka.test.utils.ContainerTestUtils;
+import org.springframework.security.oauth2.jwt.JwtDecoder;
+import org.springframework.test.context.ActiveProfiles;
 
 import java.math.BigDecimal;
 import java.time.Duration;
@@ -54,6 +55,12 @@ class NotificationKafkaConsumersTest {
     private static final String KEYCLOAK_SUB = "7f8b1c2d-4242-4242-8888-abcdef123456";
 
     @Autowired
+    private EmbeddedKafkaBroker embeddedKafkaBroker;
+
+    @Autowired
+    private KafkaListenerEndpointRegistry registry;
+
+    @Autowired
     private KafkaTemplate<Object, Object> kafkaTemplate;
 
     @Autowired
@@ -64,12 +71,6 @@ class NotificationKafkaConsumersTest {
 
     @Autowired
     private NotificationService notificationService;
-
-    @Autowired
-    private EmbeddedKafkaBroker embeddedKafkaBroker;
-
-    @Autowired
-    private KafkaListenerEndpointRegistry registry;
 
     @MockBean
     private JwtDecoder jwtDecoder;
@@ -101,18 +102,23 @@ class NotificationKafkaConsumersTest {
         kafkaTemplate.send(KafkaTopics.ORDER_PAID, event.orderNumber(), event).get();
 
         await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> {
-            List<Notification> notifications = notificationRepository.findByRecipientIdOrderByCreatedAtDesc(KEYCLOAK_SUB);
-            assertThat(notifications).hasSize(1);
-            assertThat(notifications.getFirst().getType()).isEqualTo(NotificationType.ORDER_UPDATE);
-            assertThat(notifications.getFirst().getTitle()).isEqualTo("Commande confirmée");
-            assertThat(notifications.getFirst().getMessage()).contains("CMD-2026-000101");
-            assertThat(notificationService.getUserNotifications(KEYCLOAK_SUB, false)).hasSize(1);
+            assertThat(notificationRepository.findByRecipientIdOrderByCreatedAtDesc("42")).isEmpty();
+
+            List<Notification> saved = notificationRepository.findByRecipientIdOrderByCreatedAtDesc(KEYCLOAK_SUB);
+            assertThat(saved).hasSize(1);
+            assertThat(saved.getFirst().getType()).isEqualTo(NotificationType.ORDER_UPDATE);
+            assertThat(saved.getFirst().getTitle()).isEqualTo("Commande confirmée");
+            assertThat(saved.getFirst().getMessage()).contains("CMD-2026-000101");
+
+            List<NotificationResponseDto> userNotifications = notificationService.getUserNotifications(KEYCLOAK_SUB, false);
+            assertThat(userNotifications).hasSize(1);
+            assertThat(userNotifications.getFirst().getTitle()).isEqualTo("Commande confirmée");
         });
 
         // Rejeu du même eventId : doit être ignoré (idempotence)
         kafkaTemplate.send(KafkaTopics.ORDER_PAID, event.orderNumber(), event).get();
         Thread.sleep(300);
-        assertThat(notificationRepository.findByRecipientIdOrderByCreatedAtDesc(KEYCLOAK_SUB)).hasSize(1);
+        assertThat(notificationService.getUserNotifications(KEYCLOAK_SUB, false)).hasSize(1);
     }
 
     @Test
@@ -126,10 +132,12 @@ class NotificationKafkaConsumersTest {
         kafkaTemplate.send(KafkaTopics.SUPPORT_ADMIN_REPLY, String.valueOf(event.ticketId()), event).get();
 
         await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> {
-            List<Notification> notifications = notificationRepository.findByRecipientIdOrderByCreatedAtDesc(KEYCLOAK_SUB);
-            assertThat(notifications).hasSize(1);
-            assertThat(notifications.getFirst().getType()).isEqualTo(NotificationType.SYSTEM);
-            assertThat(notifications.getFirst().getMessage()).contains("#55").contains("Colis endommagé");
+            assertThat(notificationRepository.findByRecipientIdOrderByCreatedAtDesc("42")).isEmpty();
+
+            List<NotificationResponseDto> userNotifications = notificationService.getUserNotifications(KEYCLOAK_SUB, false);
+            assertThat(userNotifications).hasSize(1);
+            assertThat(userNotifications.getFirst().getType()).isEqualTo(NotificationType.SYSTEM);
+            assertThat(userNotifications.getFirst().getMessage()).contains("#55").contains("Colis endommagé");
         });
     }
 
