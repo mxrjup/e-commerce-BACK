@@ -2,10 +2,12 @@ package com.ecommerce.notifications.kafka;
 
 import com.ecommerce.common.event.BackInStockEvent;
 import com.ecommerce.common.event.OrderPaidEvent;
+import com.ecommerce.common.event.OrderStatusChangedEvent;
 import com.ecommerce.common.event.PriceDroppedEvent;
 import com.ecommerce.common.event.SupportAdminReplyEvent;
 import com.ecommerce.common.kafka.KafkaTopics;
-import com.ecommerce.notifications.client.UserSubjectResolver;
+import com.ecommerce.notifications.client.UserContactResolver;
+import com.ecommerce.notifications.client.UserContactResolver.UserContact;
 import com.ecommerce.notifications.dto.NotificationResponseDto;
 import com.ecommerce.notifications.entity.CatalogAlertSubscription;
 import com.ecommerce.notifications.entity.CatalogAlertType;
@@ -15,6 +17,8 @@ import com.ecommerce.notifications.repository.CatalogAlertSubscriptionRepository
 import com.ecommerce.notifications.repository.NotificationRepository;
 import com.ecommerce.notifications.repository.ProcessedKafkaEventRepository;
 import com.ecommerce.notifications.service.NotificationService;
+import jakarta.mail.Session;
+import jakarta.mail.internet.MimeMessage;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -26,6 +30,7 @@ import org.springframework.kafka.listener.MessageListenerContainer;
 import org.springframework.kafka.test.EmbeddedKafkaBroker;
 import org.springframework.kafka.test.context.EmbeddedKafka;
 import org.springframework.kafka.test.utils.ContainerTestUtils;
+import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.test.context.ActiveProfiles;
 
@@ -33,10 +38,15 @@ import java.math.BigDecimal;
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
+import java.util.Properties;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @SpringBootTest(
@@ -50,6 +60,7 @@ import static org.mockito.Mockito.when;
 @ActiveProfiles("local-h2")
 @EmbeddedKafka(partitions = 3, topics = {
         KafkaTopics.ORDER_PAID, KafkaTopics.ORDER_PAID + KafkaTopics.DLT_SUFFIX,
+        KafkaTopics.ORDER_STATUS_CHANGED, KafkaTopics.ORDER_STATUS_CHANGED + KafkaTopics.DLT_SUFFIX,
         KafkaTopics.CATALOG_EVENTS, KafkaTopics.CATALOG_EVENTS + KafkaTopics.DLT_SUFFIX,
         KafkaTopics.SUPPORT_ADMIN_REPLY, KafkaTopics.SUPPORT_ADMIN_REPLY + KafkaTopics.DLT_SUFFIX
 })
@@ -79,7 +90,10 @@ class NotificationKafkaConsumersIntegrationTest {
     private JwtDecoder jwtDecoder;
 
     @MockBean
-    private UserSubjectResolver userSubjectResolver;
+    private UserContactResolver userContactResolver;
+
+    @MockBean
+    private JavaMailSender mailSender;
 
     @Autowired
     private CatalogAlertSubscriptionRepository catalogAlertSubscriptionRepository;
@@ -92,11 +106,16 @@ class NotificationKafkaConsumersIntegrationTest {
         notificationRepository.deleteAll();
         catalogAlertSubscriptionRepository.deleteAll();
         processedKafkaEventRepository.deleteAll();
-        when(userSubjectResolver.resolveKeycloakSubject(42L)).thenReturn(Optional.of(KEYCLOAK_SUB));
+        reset(mailSender);
+        when(mailSender.createMimeMessage()).thenAnswer(invocation ->
+                new MimeMessage(Session.getInstance(new Properties())));
+        when(userContactResolver.resolveUserContact(42L)).thenReturn(Optional.of(
+                new UserContact(42L, KEYCLOAK_SUB, "alice@example.com", "Alice")
+        ));
     }
 
     @Test
-    void shouldCreateOrderNotificationUnderKeycloakSubjectWhenOrderPaidEventReceived() throws Exception {
+    void shouldCreateOrderNotificationAndSendEmailWhenOrderPaidEventReceived() throws Exception {
         UUID eventId = UUID.randomUUID();
         OrderPaidEvent event = OrderPaidEvent.builder()
                 .eventId(eventId)
@@ -120,16 +139,42 @@ class NotificationKafkaConsumersIntegrationTest {
             List<NotificationResponseDto> userNotifications = notificationService.getUserNotifications(KEYCLOAK_SUB, false);
             assertThat(userNotifications).hasSize(1);
             assertThat(userNotifications.getFirst().getTitle()).isEqualTo("Commande confirmée");
+
+            verify(mailSender, times(1)).send(any(MimeMessage.class));
         });
 
-        // Rejeu du même eventId : doit être ignoré (idempotence)
+        // Rejeu du même eventId : doit être ignoré (idempotence notification + email)
         kafkaTemplate.send(KafkaTopics.ORDER_PAID, event.orderNumber(), event).get();
         Thread.sleep(300);
         assertThat(notificationService.getUserNotifications(KEYCLOAK_SUB, false)).hasSize(1);
+        verify(mailSender, times(1)).send(any(MimeMessage.class));
     }
 
     @Test
-    void shouldCreateSupportNotificationUnderKeycloakSubjectWhenSupportAdminReplyEventReceived() throws Exception {
+    void shouldCreateShipmentNotificationAndSendEmailWhenOrderShippedEventReceived() throws Exception {
+        OrderStatusChangedEvent event = OrderStatusChangedEvent.builder()
+                .orderId(102L)
+                .orderNumber("CMD-2026-000102")
+                .userId(42L)
+                .previousStatus("IN_PREPARATION")
+                .newStatus("SHIPPED")
+                .build();
+
+        kafkaTemplate.send(KafkaTopics.ORDER_STATUS_CHANGED, event.orderNumber(), event).get();
+
+        await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> {
+            List<NotificationResponseDto> userNotifications = notificationService.getUserNotifications(KEYCLOAK_SUB, false);
+            assertThat(userNotifications).hasSize(1);
+            assertThat(userNotifications.getFirst().getType()).isEqualTo(NotificationType.ORDER_UPDATE);
+            assertThat(userNotifications.getFirst().getTitle()).isEqualTo("Commande expédiée");
+            assertThat(userNotifications.getFirst().getMessage()).contains("CMD-2026-000102");
+
+            verify(mailSender, times(1)).send(any(MimeMessage.class));
+        });
+    }
+
+    @Test
+    void shouldCreateSupportNotificationAndSendEmailWhenSupportAdminReplyEventReceived() throws Exception {
         SupportAdminReplyEvent event = SupportAdminReplyEvent.builder()
                 .ticketId(55L)
                 .userId(42L)
@@ -145,6 +190,8 @@ class NotificationKafkaConsumersIntegrationTest {
             assertThat(userNotifications).hasSize(1);
             assertThat(userNotifications.getFirst().getType()).isEqualTo(NotificationType.SYSTEM);
             assertThat(userNotifications.getFirst().getMessage()).contains("#55").contains("Colis endommagé");
+
+            verify(mailSender, times(1)).send(any(MimeMessage.class));
         });
     }
 
