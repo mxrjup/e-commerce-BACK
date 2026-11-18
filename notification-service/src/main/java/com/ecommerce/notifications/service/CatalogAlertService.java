@@ -25,6 +25,8 @@ import org.springframework.transaction.annotation.Transactional;
 import java.text.NumberFormat;
 import java.util.List;
 import java.util.Locale;
+import java.time.Instant;
+import java.util.Map;
 
 @Slf4j
 @Service
@@ -34,6 +36,7 @@ public class CatalogAlertService {
     private final CatalogAlertSubscriptionRepository alertRepository;
     private final NotificationRepository notificationRepository;
     private final ProcessedKafkaEventRepository processedKafkaEventRepository;
+    private final PushNotificationService pushNotificationService;
 
     @Transactional
     public CatalogAlertResponseDto createAlert(String recipientId, CreateCatalogAlertRequestDto request) {

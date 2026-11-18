@@ -18,6 +18,7 @@ import org.springframework.web.server.ResponseStatusException;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import java.util.Map;
 
 @Slf4j
 @Service
@@ -26,6 +27,7 @@ public class NotificationService {
 
     private final NotificationRepository notificationRepository;
     private final ProcessedKafkaEventRepository processedKafkaEventRepository;
+    private final PushNotificationService pushNotificationService;
 
     @Transactional(readOnly = true)
     public List<NotificationResponseDto> getUserNotifications(String recipientId, boolean unreadOnly) {
