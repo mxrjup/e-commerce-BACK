@@ -1,6 +1,5 @@
 package com.ecommerce.notifications.controller;
 
-import com.ecommerce.notifications.config.SecurityConfig;
 import com.ecommerce.notifications.dto.NotificationResponseDto;
 import com.ecommerce.notifications.entity.NotificationType;
 import com.ecommerce.notifications.service.NotificationService;
@@ -9,10 +8,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
-import org.springframework.context.annotation.Import;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 import java.util.List;
