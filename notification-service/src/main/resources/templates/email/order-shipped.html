@@ -1,0 +1,14 @@
+<!DOCTYPE html>
+<html lang="fr" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <title>Commande expédiée</title>
+</head>
+<body style="font-family: Arial, sans-serif; color: #1f2937; line-height: 1.6; max-width: 600px; margin: 0 auto; padding: 24px;">
+    <h2 style="color: #111827;">Votre commande est en route, <span th:text="${firstName}">Client</span> !</h2>
+    <p>Votre commande <strong th:text="${orderNumber}">CMD-2026-000001</strong> a été remise à notre transporteur.</p>
+    <p>Vous recevrez prochainement votre colis à l'adresse de livraison renseignée lors de votre commande.</p>
+    <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 24px 0;">
+    <p style="font-size: 12px; color: #6b7280;">Cet email est envoyé automatiquement, merci de ne pas y répondre directement.</p>
+</body>
+</html>

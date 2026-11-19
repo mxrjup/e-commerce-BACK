@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html lang="fr" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <title>Confirmation de commande</title>
+</head>
+<body style="font-family: Arial, sans-serif; color: #1f2937; line-height: 1.6; max-width: 600px; margin: 0 auto; padding: 24px;">
+    <h2 style="color: #111827;">Merci pour votre commande, <span th:text="${firstName}">Client</span> !</h2>
+    <p>Votre commande <strong th:text="${orderNumber}">CMD-2026-000001</strong> a bien été confirmée et payée.</p>
+    <p th:if="${formattedAmount != null}">
+        Montant total TTC : <strong th:text="${formattedAmount}">89,90 €</strong>
+    </p>
+    <p>Nous préparons votre colis et vous informerons par email dès son expédition.</p>
+    <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 24px 0;">
+    <p style="font-size: 12px; color: #6b7280;">Cet email est envoyé automatiquement, merci de ne pas y répondre directement.</p>
+</body>
+</html>

@@ -11,13 +11,16 @@ PARTITIONS="${KAFKA_TOPIC_PARTITIONS:-3}"
 # Un seul broker en local comme sur le cluster de l'ecole : pas de replique.
 REPLICATION=1
 
-# Trois topics metier. Le nom est le contrat entre un producteur et ses
+# Topics metier. Le nom est le contrat entre un producteur et ses
 # consommateurs : point comme separateur, jamais d'underscore (melanger les
 # deux expose a des collisions de noms de metriques cote broker).
 TOPICS=(
   # O03 : publiee a la validation du paiement, consommee par le panier (P06)
   # et les notifications (N02). Nom deja utilise par le code en cours.
   "order.paid"
+  # O04 : changement de statut d'une commande (expedition, livraison),
+  # consommee par order-service et les notifications (N05).
+  "order-status-changed"
   # C09 : baisse de prix et retour en stock, consommees par les alertes (N03).
   "catalogue.evenements"
   # S03 : reponse d'un collaborateur a un ticket, consommee par les
