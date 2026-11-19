@@ -3,6 +3,7 @@ package com.ecommerce.catalog.service;
 import com.ecommerce.catalog.dto.InventoryItemResponse;
 import com.ecommerce.catalog.dto.PageResponse;
 import com.ecommerce.catalog.repository.VariantRepository;
+import com.ecommerce.catalog.support.LikePatterns;
 import com.ecommerce.common.exception.BadRequestException;
 import com.ecommerce.common.exception.ConflictException;
 import com.ecommerce.common.exception.ResourceNotFoundException;
@@ -16,7 +17,6 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.TreeMap;
 
@@ -54,7 +54,7 @@ public class StockService {
             throw new BadRequestException("page is too large");
         }
         Page<InventoryItemResponse> result = variantRepository
-                .findInventory(pattern(search), lowStockOnly, PageRequest.of(page, size))
+                .findInventory(LikePatterns.contains(search), lowStockOnly, PageRequest.of(page, size))
                 .map(InventoryItemResponse::from);
         return PageResponse.of(result.getContent(), page, size, result.getTotalElements());
     }
@@ -164,16 +164,5 @@ public class StockService {
 
     private Instant now() {
         return clock.instant();
-    }
-
-    /** A LIKE pattern with the user's text taken literally: % and _ match themselves. */
-    private static String pattern(String search) {
-        if (search == null || search.isBlank()) {
-            return "%";
-        }
-        // "!" est le caractere d'echappement declare dans la requete (escape '!').
-        String escaped = search.trim().toLowerCase(Locale.ROOT)
-                .replace("!", "!!").replace("%", "!%").replace("_", "!_");
-        return "%" + escaped + "%";
     }
 }
