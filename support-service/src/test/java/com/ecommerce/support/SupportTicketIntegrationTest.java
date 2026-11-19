@@ -17,6 +17,8 @@ import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
+import com.ecommerce.common.exception.ConflictException;
+
 
 import java.util.Optional;
 
@@ -140,7 +142,7 @@ class SupportTicketIntegrationTest {
                         .with(jwt().jwt(j -> j.subject(CLIENT_A)))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"content\": \"Toujours d'actualité ?\"}"))
-                .andExpect(status().isUnprocessableEntity());
+                .andExpect(status().isConflict());
     }
 
     @Test

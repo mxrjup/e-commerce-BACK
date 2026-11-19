@@ -1,6 +1,5 @@
 package com.ecommerce.support.service;
 
-import com.ecommerce.common.exception.BusinessRuleException;
 import com.ecommerce.common.exception.ResourceNotFoundException;
 import com.ecommerce.support.client.UserIdentityClient;
 import com.ecommerce.support.dto.AddTicketMessageRequest;
@@ -17,6 +16,8 @@ import com.ecommerce.support.repository.SupportTicketRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import com.ecommerce.common.exception.ConflictException;
+import com.ecommerce.common.exception.ResourceNotFoundException;
 
 import java.util.List;
 
@@ -75,7 +76,7 @@ public class SupportTicketService {
                 .orElseThrow(() -> new ResourceNotFoundException("Ticket SAV introuvable : " + ticketId));
 
         if (ticket.getStatus() == TicketStatus.CLOSED) {
-            throw new BusinessRuleException("TICKET_CLOSED", "Impossible d'ajouter un message sur un ticket clôturé.");
+            throw new ConflictException("Impossible d'ajouter un message sur un ticket clôturé.");
         }
 
         if (ticket.getStatus() == TicketStatus.WAITING_CUSTOMER || ticket.getStatus() == TicketStatus.RESOLVED) {
