@@ -231,7 +231,7 @@ où personne ne lira jamais rien.
 |---|---|---|---|---|
 | `common-lib` | Librairie partagée (contrat d'erreur HTTP, événements Kafka) | `T01`, `K02` | — | en place |
 | `cart-service` | Panier | `P*` | 8083 | en place |
-| `catalog-service` | Catalogue, stock, avis | `C*` | 8081 | référentiels en place (`C05`) |
+| `catalog-service` | Catalogue, stock, avis | `C*` | 8081 | produits, recherche, stock et API admin en place |
 | `user-service` | Utilisateurs, adresses, collaborateurs | `U*` | 8082 | à créer |
 | `order-service` | Commandes, paiement, livraison | `O*` | 8084 | en place |
 | `notification-service` | Notifications, alertes, emails | `N*` | 8085 | à créer |
@@ -568,6 +568,88 @@ compatibilité des attributs sur une variante, prix TTC, pagination, exclusions,
 accents et paramètres invalides. Les tests PostgreSQL vérifient aussi les
 trigrammes et leur index. Sans Docker, ils sont ignorés localement et échouent
 en CI ; les tests C02 et le repli H2 restent exécutés.
+
+### API admin des produits
+
+`C04` (#5) : ce que le back-office utilise pour gérer le catalogue (écrans
+`C15` liste, `C16` formulaire, `C17` variantes et attributs). Tout est sous
+`/api/admin/catalog`, réservé aux rôles `collaborator` et `admin` par la
+gateway. Contrairement à la vitrine, ces routes voient **tous les statuts**,
+le prix d'achat et le stock exact.
+
+| Chemin | Effet |
+|---|---|
+| `GET /products` | une page de lignes : statut, marque, catégorie, nombre de variantes, prix le plus bas HT, stock total, `lowStock` si une variante est en alerte. Filtres `search` (titre, slug ou SKU d'une variante), `status`, `brandId`, `categoryId` (sous-catégories comprises) ; `sort` = `updated` (défaut, dernière modification d'abord), `newest` ou `title` ; `page`, `size` (100 au plus) |
+| `GET /products/{id}` | la fiche complète : identifiants et noms de la marque, de la catégorie, de la TVA et des univers, specs, et chaque variante avec prix HT, prix d'achat, stock, seuil, valeurs d'attributs et images |
+| `POST /products` | création, **toujours en brouillon** ; sans `slug`, il vient du titre ; sans `vatRateId`, c'est le taux par défaut |
+| `PUT /products/{id}` | remplace la fiche : titre, slug, description HTML, marque, catégorie, TVA, univers, et la **liste entière** des specs, dans l'ordre d'affichage |
+| `PUT /products/{id}/status` | `{"status": "PUBLIE"}`, `"ARCHIVE"` |
+| `DELETE /products/{id}` | un brouillon seulement |
+| `GET /specification-keys?categoryId=` | les clés de specs déjà utilisées dans une catégorie, les plus fréquentes d'abord : des suggestions pour le formulaire, sans table de plus |
+| `POST /products/{id}/variants` | SKU, prix d'achat, prix de vente et remise HT, écotaxe, poids, `valueIds`, et à la création seulement `initialStock` et `alertThreshold` |
+| `PUT /variants/{id}` | les mêmes champs, sans le stock ni le seuil |
+| `DELETE /variants/{id}` | une variante d'un brouillon seulement |
+| `GET /attributes`, `GET /attributes/{id}` | les attributs et leurs valeurs, dans l'ordre d'affichage |
+| `POST /attributes`, `PUT /attributes/{id}` | `{"name": "Couleur", "values": [{"id": 3, "value": "Noir"}, {"value": "Rouge"}]}` : la liste remplace l'ancienne, une valeur avec son `id` est gardée (et renommée si besoin), une valeur sans `id` est créée |
+| `DELETE /attributes/{id}` | un attribut qu'aucune variante n'utilise |
+
+Les règles :
+
+- **Le cycle de vie.** Un produit naît brouillon, se publie s'il a au moins
+  une variante (sinon la vitrine montrerait un produit sans prix ni bouton
+  d'achat), puis passe de publié à archivé et inversement. Il ne revient
+  **jamais en brouillon** : un brouillon, c'est un produit qu'aucun client
+  n'a vu.
+- **On supprime seulement ce qui n'a jamais été vendu.** Un produit publié a
+  pu être commandé ou cité dans un ticket SAV : on l'archive. Pour arrêter de
+  vendre une seule variante, on met son stock à 0 ; le panier l'affiche déjà
+  « indisponible ».
+- **Le stock ne passe pas par le formulaire.** Un formulaire ouvert depuis
+  cinq minutes renverrait un vieux stock et effacerait les ventes faites
+  entre-temps : après la création, le stock bouge seulement par les
+  ajustements (`C07`) et les commandes payées (`C21`). Un `PUT` qui envoie
+  `initialStock` ou `alertThreshold` répond 400 avec le bon chemin.
+- **Deux variantes d'un produit se distinguent toujours.** Une valeur par
+  attribut au plus (pas de « Noir + Blanc »), et pas deux variantes avec les
+  mêmes valeurs : sur la fiche, le client choisit des valeurs, et le site doit
+  trouver une seule variante. La génération des combinaisons (`C17`) se fait
+  dans l'écran, qui appelle `POST` pour chacune.
+- **Rien ne disparaît sous une variante.** Une valeur d'attribut utilisée par
+  une variante ne se retire pas, ni son attribut (409).
+- **Une TVA inactive** n'est plus proposée pour un nouveau produit, mais un
+  produit qui l'a déjà la garde.
+- **Les erreurs** suivent le contrat commun : 400 pour un formulaire mal
+  rempli (remise supérieure ou égale au prix, marque inconnue, spec en double,
+  plus de deux décimales), 404 pour un produit ou une variante inconnus, 409
+  pour un conflit avec l'existant (SKU ou slug pris, publication sans variante,
+  suppression refusée).
+- **Les écritures concurrentes.** Chaque écriture sur un produit (fiche,
+  statut, variantes) verrouille d'abord la ligne du produit : deux ajouts
+  identiques simultanés ne passent pas tous les deux (vérifié sur PostgreSQL
+  avec 8 ajouts en même temps), et un produit ne se publie pas pendant qu'on
+  supprime sa dernière variante.
+- **Un enregistrement n'écrit que ce qui a changé** (`@DynamicUpdate` sur
+  `Product` et `Variant`). Le stock bouge par des `UPDATE` directs (`C07`,
+  `C21`) qui ne passent pas par l'entité : sans cela, enregistrer le prix
+  d'une variante réécrirait le stock lu avant une vente faite au même moment,
+  et effacerait cette vente. De même, enregistrer la fiche ne remet pas un
+  statut changé entre-temps. Les deux cas sont rejoués par des tests.
+- **Limite connue :** si deux personnes modifient la même fiche en même temps,
+  la dernière enregistrée gagne. Un numéro de version (`@Version`, 409 si la
+  fiche a changé depuis son ouverture) serait l'alternative, si le besoin
+  apparaît.
+- **La description HTML** est enregistrée telle que l'éditeur l'envoie. Les
+  comptes du back-office sont internes ; si un jour la vitrine l'affiche dans
+  une vue web, elle devra la nettoyer à l'affichage.
+
+Les événements « baisse de prix » et « retour en stock » (`C09`) se brancheront
+sur `PUT /variants/{id}` et sur les ajustements de stock ; les images (`C06`)
+auront leurs propres routes.
+
+Les tests `AdminProductApiTest` et `AttributeApiTest` tournent sur H2, puis
+sont rejoués tels quels sur PostgreSQL 16 (`PostgresAdminProductApiTest`,
+`PostgresAttributeApiTest`, Testcontainers).
+
 ### Stock
 
 `C07` (#7) : l'inventaire du back-office (écran `C20` #16), les corrections

@@ -20,6 +20,12 @@ public interface VariantRepository extends JpaRepository<Variant, Long> {
 
     Optional<Variant> findBySku(String sku);
 
+    /** Whether a variant uses this attribute value: such a value cannot be deleted (C04). */
+    boolean existsByValues_Id(Long valueId);
+
+    /** Whether a variant uses a value of this attribute: such an attribute cannot be deleted (C04). */
+    boolean existsByValues_Attribute_Id(Long attributeId);
+
     /**
      * The variants with their product, rate and values in one query: without
      * the graph, each variant would load them one by one. The images stay

@@ -9,6 +9,7 @@ import com.ecommerce.catalog.entity.ProductStatus;
 import com.ecommerce.catalog.repository.CategoryRepository;
 import com.ecommerce.catalog.repository.ProductRepository;
 import com.ecommerce.catalog.repository.ProductSearchRepository;
+import com.ecommerce.catalog.support.CategoryTree;
 import com.ecommerce.common.exception.BadRequestException;
 import com.ecommerce.common.exception.ResourceNotFoundException;
 
@@ -18,13 +19,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
-import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Deque;
-import java.util.HashMap;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -155,28 +152,11 @@ public class ProductCatalogService {
     /** The ids of a category and of every category below it; empty when the slug is unknown. */
     private Set<Long> categoryAndDescendants(String slug) {
         List<Category> all = categoryRepository.findAll();
-        Map<Long, List<Long>> children = new HashMap<>();
-        Long root = null;
-        for (Category category : all) {
-            if (category.getParentId() != null) {
-                children.computeIfAbsent(category.getParentId(), key -> new ArrayList<>()).add(category.getId());
-            }
-            if (category.getSlug().equals(slug)) {
-                root = category.getId();
-            }
-        }
-        Set<Long> ids = new LinkedHashSet<>();
-        if (root == null) {
-            return ids;
-        }
-        Deque<Long> toVisit = new ArrayDeque<>(List.of(root));
-        while (!toVisit.isEmpty()) {
-            Long id = toVisit.pop();
-            if (ids.add(id)) {
-                toVisit.addAll(children.getOrDefault(id, List.of()));
-            }
-        }
-        return ids;
+        return all.stream()
+                .filter(category -> category.getSlug().equals(slug))
+                .findFirst()
+                .map(root -> CategoryTree.withDescendants(all, root.getId()))
+                .orElseGet(Set::of);
     }
 
     private static String blankToNull(String value) {

@@ -14,6 +14,7 @@ import jakarta.persistence.Table;
 import lombok.Getter;
 import lombok.Setter;
 import org.hibernate.annotations.BatchSize;
+import org.hibernate.annotations.DynamicUpdate;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
@@ -27,10 +28,16 @@ import java.util.Set;
  * to a variant, never to a product.
  *
  * <p>Prices are excluding VAT; the rate comes from the product.
+ *
+ * <p>Saving a variant writes only the columns that changed. The stock moves
+ * through single UPDATE statements (C07, C21) that never load the entity: a
+ * back-office save that wrote every column would put back the stock it read
+ * before a concurrent sale, and erase that sale.
  */
 @Getter
 @Setter
 @Entity
+@DynamicUpdate
 @Table(name = "variante")
 public class Variant extends AuditedEntity {
 
