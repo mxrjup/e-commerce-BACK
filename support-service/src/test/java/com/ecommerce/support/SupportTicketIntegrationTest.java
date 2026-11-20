@@ -1,21 +1,28 @@
 package com.ecommerce.support;
 
+import com.ecommerce.common.event.SupportAdminReplyEvent;
 import com.ecommerce.common.exception.ResourceNotFoundException;
 import com.ecommerce.support.client.OrderClient;
 import com.ecommerce.support.client.OrderClient.OrderSummary;
 import com.ecommerce.support.client.UserIdentityClient;
+import com.ecommerce.support.entity.MessageAuthorRole;
 import com.ecommerce.support.entity.SupportTicket;
+import com.ecommerce.support.entity.TicketCategory;
+import com.ecommerce.support.entity.TicketMessage;
 import com.ecommerce.support.entity.TicketStatus;
 import com.ecommerce.support.repository.SupportTicketRepository;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.MediaType;
+import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.kafka.support.SendResult;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
@@ -24,11 +31,17 @@ import org.springframework.test.web.servlet.MvcResult;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -40,6 +53,7 @@ class SupportTicketIntegrationTest {
 
     private static final String CLIENT_A = "sub-client-a";
     private static final String CLIENT_B = "sub-client-b";
+    private static final String ADMIN_USER = "sub-admin-1";
 
     @Autowired
     private MockMvc mockMvc;
@@ -59,6 +73,9 @@ class SupportTicketIntegrationTest {
     @MockBean
     private OrderClient orderClient;
 
+    @MockBean
+    private KafkaTemplate<String, Object> kafkaTemplate;
+
     @BeforeEach
     void setUp() {
         ticketRepository.deleteAll();
@@ -77,6 +94,9 @@ class SupportTicketIntegrationTest {
         when(orderClient.getCustomerOrderById(42L, 303L)).thenReturn(
                 new OrderSummary(303L, "CMD-2026-000303", "DELIVERED", Instant.now().minus(15, ChronoUnit.DAYS))
         );
+
+        CompletableFuture<SendResult<String, Object>> completedFuture = CompletableFuture.completedFuture(null);
+        when(kafkaTemplate.send(anyString(), anyString(), any())).thenReturn(completedFuture);
     }
 
     @Test
@@ -236,6 +256,82 @@ class SupportTicketIntegrationTest {
                         .with(jwt().jwt(j -> j.subject(CLIENT_A)))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"content\": \"Toujours d'actualité ?\"}"))
+                .andExpect(status().isConflict());
+    }
+
+    @Test
+    void shouldListReplyUpdateStatusAndPublishAdminReplyEvent() throws Exception {
+        SupportTicket ticket = SupportTicket.builder()
+                .userSubject(CLIENT_A)
+                .userId(42L)
+                .orderId(101L)
+                .orderNumber("CMD-2026-000101")
+                .category(TicketCategory.DELIVERY)
+                .subject("Colis endommagé")
+                .status(TicketStatus.OPEN)
+                .build();
+        ticket.addMessage(TicketMessage.builder()
+                .authorSubject(CLIENT_A)
+                .authorRole(MessageAuthorRole.CUSTOMER)
+                .content("Bonjour, mon colis est arrivé abîmé.")
+                .build());
+        ticket = ticketRepository.save(ticket);
+
+        mockMvc.perform(get("/api/admin/support/tickets")
+                        .param("status", "OPEN")
+                        .with(jwt().jwt(j -> j.subject(ADMIN_USER))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].id").value(ticket.getId()))
+                .andExpect(jsonPath("$[0].userId").value(42));
+
+        String replyPayload = """
+                {
+                  "content": "Bonjour, nous venons de déclencher l'envoi d'un article de remplacement."
+                }
+                """;
+
+        mockMvc.perform(post("/api/admin/support/tickets/{id}/reply", ticket.getId())
+                        .with(jwt().jwt(j -> j.subject(ADMIN_USER)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(replyPayload))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.status").value("WAITING_CUSTOMER"))
+                .andExpect(jsonPath("$.messages.length()").value(2))
+                .andExpect(jsonPath("$.messages[1].authorRole").value("AGENT"))
+                .andExpect(jsonPath("$.messages[1].content")
+                        .value("Bonjour, nous venons de déclencher l'envoi d'un article de remplacement."));
+
+        ArgumentCaptor<Object> eventCaptor = ArgumentCaptor.forClass(Object.class);
+        verify(kafkaTemplate).send(
+                eq("sav.reponse-admin"),
+                eq(String.valueOf(ticket.getId())),
+                eventCaptor.capture()
+        );
+        assertThat(eventCaptor.getValue()).isInstanceOf(SupportAdminReplyEvent.class);
+        SupportAdminReplyEvent published = (SupportAdminReplyEvent) eventCaptor.getValue();
+        assertThat(published.ticketId()).isEqualTo(ticket.getId());
+        assertThat(published.userId()).isEqualTo(42L);
+        assertThat(published.ticketSubject()).isEqualTo("Colis endommagé");
+
+        mockMvc.perform(patch("/api/admin/support/tickets/{id}/status", ticket.getId())
+                        .with(jwt().jwt(j -> j.subject(ADMIN_USER)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"status\": \"RESOLVED\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("RESOLVED"));
+
+        mockMvc.perform(patch("/api/admin/support/tickets/{id}/status", ticket.getId())
+                        .with(jwt().jwt(j -> j.subject(ADMIN_USER)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"status\": \"CLOSED\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("CLOSED"));
+
+        mockMvc.perform(post("/api/admin/support/tickets/{id}/reply", ticket.getId())
+                        .with(jwt().jwt(j -> j.subject(ADMIN_USER)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"content\": \"Message tardif\"}"))
                 .andExpect(status().isConflict());
     }
 
