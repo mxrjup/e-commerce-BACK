@@ -1,6 +1,7 @@
 package com.ecommerce.support.repository;
 
 import com.ecommerce.support.entity.SupportTicket;
+import com.ecommerce.support.entity.TicketCategory;
 import com.ecommerce.support.entity.TicketStatus;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -16,4 +17,15 @@ public interface SupportTicketRepository extends JpaRepository<SupportTicket, Lo
 
     @EntityGraph(attributePaths = "messages")
     Optional<SupportTicket> findWithMessagesByIdAndUserSubject(Long id, String userSubject);
+
+    List<SupportTicket> findAllByOrderByUpdatedAtDesc();
+
+    List<SupportTicket> findByStatusOrderByUpdatedAtDesc(TicketStatus status);
+
+    List<SupportTicket> findByCategoryOrderByUpdatedAtDesc(TicketCategory category);
+
+    List<SupportTicket> findByStatusAndCategoryOrderByUpdatedAtDesc(TicketStatus status, TicketCategory category);
+
+    @EntityGraph(attributePaths = "messages")
+    Optional<SupportTicket> findWithMessagesById(Long id);
 }
