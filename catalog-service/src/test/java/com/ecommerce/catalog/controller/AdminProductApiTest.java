@@ -1,6 +1,14 @@
 package com.ecommerce.catalog.controller;
 
 import com.ecommerce.catalog.demo.DemoCatalogLoader;
+import com.ecommerce.catalog.dto.AdminProductRequest;
+import com.ecommerce.catalog.dto.AdminVariantRequest;
+import com.ecommerce.catalog.entity.ProductStatus;
+import com.ecommerce.catalog.repository.ProductRepository;
+import com.ecommerce.catalog.service.AdminProductService;
+import com.ecommerce.catalog.repository.VariantRepository;
+import com.ecommerce.catalog.service.AdminVariantService;
+import com.ecommerce.catalog.service.StockService;
 import com.ecommerce.catalog.support.CatalogTestData;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -15,6 +23,15 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
+
+import java.math.BigDecimal;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.contains;
@@ -52,6 +69,24 @@ class AdminProductApiTest {
 
     @Autowired
     private ObjectMapper objectMapper;
+
+    @Autowired
+    private AdminVariantService variantService;
+
+    @Autowired
+    private VariantRepository variantRepository;
+
+    @Autowired
+    private AdminProductService productService;
+
+    @Autowired
+    private ProductRepository productRepository;
+
+    @Autowired
+    private StockService stockService;
+
+    @Autowired
+    private PlatformTransactionManager transactionManager;
 
     @BeforeEach
     void loadIfEmpty() {
@@ -317,6 +352,68 @@ class AdminProductApiTest {
         mockMvc.perform(delete(ADMIN + "/variants/" + draftVariant)).andExpect(status().isNoContent());
         mockMvc.perform(get(ADMIN + "/products/" + productId("corsair-vengeance-rgb-ddr5")))
                 .andExpect(jsonPath("$.variants", hasSize(0)));
+    }
+
+    /**
+     * A paid order takes a unit while the back-office saves the price of the
+     * same variant. The save read the stock before the order: it must not
+     * write that old value back and erase the sale (review of #154).
+     *
+     * <p>The outer transaction loads the variant first, as the save does,
+     * then lets the order commit from another thread before the save
+     * flushes: a deterministic version of the race.
+     */
+    @Test
+    void shouldNotEraseASaleMadeWhileAVariantIsSaved() throws Exception {
+        Long id = id("SELECT id FROM variante WHERE sku = 'LOGI-G915TKL-AZ-NOI'");
+        AdminVariantRequest newPrice = new AdminVariantRequest("LOGI-G915TKL-AZ-NOI", new BigDecimal("120"),
+                new BigDecimal("199.00"), null, null, new BigDecimal("1.025"),
+                List.of(valueId("Couleur", "Noir"), valueId("Layout clavier", "AZERTY")), null, null);
+        ExecutorService order = Executors.newSingleThreadExecutor();
+
+        new TransactionTemplate(transactionManager).executeWithoutResult(transaction -> {
+            assertThat(variantRepository.findById(id).orElseThrow().getStock()).isEqualTo(8);
+            try {
+                order.submit(() -> stockService.takePaidOrder(Map.of(id, 1))).get(30, TimeUnit.SECONDS);
+            } catch (Exception ex) {
+                throw new IllegalStateException(ex);
+            }
+            variantService.update(id, newPrice);
+        });
+        order.shutdown();
+
+        assertThat(jdbcTemplate.queryForObject("SELECT stock FROM variante WHERE id = ?", Integer.class, id))
+                .isEqualTo(7);
+        assertThat(jdbcTemplate.queryForObject("SELECT prix_vente_ht FROM variante WHERE id = ?", BigDecimal.class, id))
+                .isEqualByComparingTo("199.00");
+    }
+
+    /**
+     * Someone publishes a product while a colleague saves its sheet, which
+     * still shows it as a draft: the save must not put the draft status back.
+     * Otherwise a product that has been on sale could be deleted.
+     */
+    @Test
+    void shouldNotPutBackTheDraftStatusWhenASheetIsSaved() throws Exception {
+        Long id = productId("corsair-vengeance-rgb-ddr5");
+        AdminProductRequest sheet = new AdminProductRequest("Corsair Vengeance RGB DDR5", null, "<p>DDR5</p>",
+                id("SELECT id FROM marque WHERE slug = 'corsair'"), id("SELECT id FROM categorie WHERE slug = 'memoire'"),
+                null, List.of(), List.of(new AdminProductRequest.Specification("Fréquence", "6000 MHz")));
+        ExecutorService colleague = Executors.newSingleThreadExecutor();
+
+        new TransactionTemplate(transactionManager).executeWithoutResult(transaction -> {
+            assertThat(productRepository.findById(id).orElseThrow().getStatus()).isEqualTo(ProductStatus.BROUILLON);
+            try {
+                colleague.submit(() -> productService.changeStatus(id, ProductStatus.PUBLIE)).get(30, TimeUnit.SECONDS);
+            } catch (Exception ex) {
+                throw new IllegalStateException(ex);
+            }
+            productService.update(id, sheet);
+        });
+        colleague.shutdown();
+
+        assertThat(jdbcTemplate.queryForObject("SELECT statut FROM produit WHERE id = ?", String.class, id))
+                .isEqualTo("PUBLIE");
     }
 
     /** A draft keyboard with no variant yet. */

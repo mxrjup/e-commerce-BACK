@@ -16,6 +16,7 @@ import jakarta.persistence.Table;
 import lombok.Getter;
 import lombok.Setter;
 import org.hibernate.annotations.BatchSize;
+import org.hibernate.annotations.DynamicUpdate;
 
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
@@ -25,10 +26,14 @@ import java.util.Set;
 /**
  * The generic product sheet: what every variant has in common. What is
  * actually sold, priced and stocked is a {@link Variant}.
+ *
+ * <p>Saving a product writes only the columns that changed: saving the sheet
+ * never puts back a status that was changed meanwhile (C04).
  */
 @Getter
 @Setter
 @Entity
+@DynamicUpdate
 @Table(name = "produit")
 public class Product extends AuditedEntity {
 

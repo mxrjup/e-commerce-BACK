@@ -623,11 +623,17 @@ Les règles :
   plus de deux décimales), 404 pour un produit ou une variante inconnus, 409
   pour un conflit avec l'existant (SKU ou slug pris, publication sans variante,
   suppression refusée).
-- **Les écritures concurrentes.** Chaque écriture sur les variantes ou le
-  statut d'un produit verrouille d'abord la ligne du produit : deux ajouts
+- **Les écritures concurrentes.** Chaque écriture sur un produit (fiche,
+  statut, variantes) verrouille d'abord la ligne du produit : deux ajouts
   identiques simultanés ne passent pas tous les deux (vérifié sur PostgreSQL
   avec 8 ajouts en même temps), et un produit ne se publie pas pendant qu'on
   supprime sa dernière variante.
+- **Un enregistrement n'écrit que ce qui a changé** (`@DynamicUpdate` sur
+  `Product` et `Variant`). Le stock bouge par des `UPDATE` directs (`C07`,
+  `C21`) qui ne passent pas par l'entité : sans cela, enregistrer le prix
+  d'une variante réécrirait le stock lu avant une vente faite au même moment,
+  et effacerait cette vente. De même, enregistrer la fiche ne remet pas un
+  statut changé entre-temps. Les deux cas sont rejoués par des tests.
 - **Limite connue :** si deux personnes modifient la même fiche en même temps,
   la dernière enregistrée gagne. Un numéro de version (`@Version`, 409 si la
   fiche a changé depuis son ouverture) serait l'alternative, si le besoin

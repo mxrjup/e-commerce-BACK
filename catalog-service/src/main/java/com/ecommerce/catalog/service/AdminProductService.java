@@ -115,9 +115,13 @@ public class AdminProductService {
         return AdminProductResponse.from(save(new Product(), request));
     }
 
+    /**
+     * Locks the product like every other write on it: a draft deleted
+     * meanwhile answers 404 instead of failing the save.
+     */
     @Transactional
     public AdminProductResponse update(Long id, AdminProductRequest request) {
-        return AdminProductResponse.from(save(find(id), request));
+        return AdminProductResponse.from(save(findForUpdate(id), request));
     }
 
     @Transactional

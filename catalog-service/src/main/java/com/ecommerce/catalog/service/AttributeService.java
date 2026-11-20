@@ -111,7 +111,9 @@ public class AttributeService {
             }
         }
         attribute.getValues().removeAll(removed);
-        attributeRepository.flush();
+        // Une variante peut avoir pris une de ces valeurs depuis la verification : la base refuse alors.
+        Persistence.orConflict(attributeRepository::flush,
+                "A value of " + attribute.getName() + " was just given to a variant and cannot be removed");
 
         for (int position = 0; position < requested.size(); position++) {
             AttributeValue target = targets.get(position);
