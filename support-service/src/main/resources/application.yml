@@ -7,7 +7,9 @@ mcp:
 services:
   user-service:
     uri: ${USER_SERVICE_URI:http://localhost:8082}
-
+  order-service:
+    uri: ${ORDER_SERVICE_URI:http://localhost:8084}
+    
 spring:
   application:
     name: support-service

@@ -410,6 +410,7 @@ services:
       KEYCLOAK_ISSUER_URI: ${KEYCLOAK_FRONTEND_URL:-http://localhost:8180}/realms/ecommerce
       KEYCLOAK_JWK_SET_URI: http://keycloak:8080/realms/ecommerce/protocol/openid-connect/certs
       USER_SERVICE_URI: http://user-service:8082
+      ORDER_SERVICE_URI: http://order-service:8084
       MCP_USERS_READ_KEY: ${MCP_USERS_READ_KEY:-dev-mcp-read-key}
     ports:
       - "8086:8086"

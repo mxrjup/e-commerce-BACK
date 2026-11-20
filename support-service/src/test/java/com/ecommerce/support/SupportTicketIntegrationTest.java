@@ -1,5 +1,8 @@
 package com.ecommerce.support;
 
+import com.ecommerce.common.exception.ResourceNotFoundException;
+import com.ecommerce.support.client.OrderClient;
+import com.ecommerce.support.client.OrderClient.OrderSummary;
 import com.ecommerce.support.client.UserIdentityClient;
 import com.ecommerce.support.entity.SupportTicket;
 import com.ecommerce.support.entity.TicketStatus;
@@ -17,9 +20,9 @@ import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
-import com.ecommerce.common.exception.ConflictException;
 
-
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -53,11 +56,27 @@ class SupportTicketIntegrationTest {
     @MockBean
     private UserIdentityClient userIdentityClient;
 
+    @MockBean
+    private OrderClient orderClient;
+
     @BeforeEach
     void setUp() {
         ticketRepository.deleteAll();
         when(userIdentityClient.resolveUserIdBySubject(CLIENT_A)).thenReturn(Optional.of(42L));
         when(userIdentityClient.resolveUserIdBySubject(CLIENT_B)).thenReturn(Optional.of(99L));
+
+        when(orderClient.getCustomerOrderById(42L, 101L)).thenReturn(
+                new OrderSummary(101L, "CMD-2026-000101", "DELIVERED", Instant.now().minus(3, ChronoUnit.DAYS))
+        );
+        when(orderClient.getCustomerOrderByNumber(42L, "CMD-2026-000102")).thenReturn(
+                new OrderSummary(102L, "CMD-2026-000102", "SHIPPED", Instant.now().minus(13, ChronoUnit.DAYS))
+        );
+        when(orderClient.getCustomerOrderById(42L, 202L)).thenThrow(
+                new ResourceNotFoundException("Commande introuvable : 202")
+        );
+        when(orderClient.getCustomerOrderById(42L, 303L)).thenReturn(
+                new OrderSummary(303L, "CMD-2026-000303", "DELIVERED", Instant.now().minus(15, ChronoUnit.DAYS))
+        );
     }
 
     @Test
@@ -81,6 +100,7 @@ class SupportTicketIntegrationTest {
                 .andExpect(jsonPath("$.subject").value("Colis reçu endommagé"))
                 .andExpect(jsonPath("$.category").value("DELIVERY"))
                 .andExpect(jsonPath("$.status").value("OPEN"))
+                .andExpect(jsonPath("$.orderId").value(101))
                 .andExpect(jsonPath("$.orderNumber").value("CMD-2026-000101"))
                 .andExpect(jsonPath("$.messages.length()").value(1))
                 .andExpect(jsonPath("$.messages[0].authorRole").value("CUSTOMER"))
@@ -93,7 +113,6 @@ class SupportTicketIntegrationTest {
         SupportTicket persisted = ticketRepository.findById(ticketId).orElseThrow();
         assertThat(persisted.getUserId()).isEqualTo(42L);
 
-        // Ajout d'un second message par le client
         String messagePayload = """
                 {
                   "content": "Je joins les photos demandées par email."
@@ -108,7 +127,6 @@ class SupportTicketIntegrationTest {
                 .andExpect(jsonPath("$.authorRole").value("CUSTOMER"))
                 .andExpect(jsonPath("$.content").value("Je joins les photos demandées par email."));
 
-        // Liste des tickets du client A uniquement
         mockMvc.perform(get("/api/v1/support/tickets")
                         .with(jwt().jwt(j -> j.subject(CLIENT_A))))
                 .andExpect(status().isOk())
@@ -116,7 +134,6 @@ class SupportTicketIntegrationTest {
                 .andExpect(jsonPath("$[0].id").value(ticketId))
                 .andExpect(jsonPath("$[0].messageCount").value(2));
 
-        // Isolation : le client B ne voit ni la liste ni le détail du ticket de A
         mockMvc.perform(get("/api/v1/support/tickets")
                         .with(jwt().jwt(j -> j.subject(CLIENT_B))))
                 .andExpect(status().isOk())
@@ -125,6 +142,83 @@ class SupportTicketIntegrationTest {
         mockMvc.perform(get("/api/v1/support/tickets/{id}", ticketId)
                         .with(jwt().jwt(j -> j.subject(CLIENT_B))))
                 .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void shouldCreateTicketUsingOrderNumberOnlyWithin14Days() throws Exception {
+        String payload = """
+                {
+                  "subject": "Demande de retour",
+                  "message": "Je souhaite exercer mon droit de rétractation.",
+                  "category": "RETURN_REFUND",
+                  "orderNumber": "CMD-2026-000102"
+                }
+                """;
+
+        mockMvc.perform(post("/api/v1/support/tickets")
+                        .with(jwt().jwt(j -> j.subject(CLIENT_A)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.orderId").value(102))
+                .andExpect(jsonPath("$.orderNumber").value("CMD-2026-000102"));
+    }
+
+    @Test
+    void shouldRejectTicketWhenOrderBelongsToAnotherUser() throws Exception {
+        String payload = """
+                {
+                  "subject": "Problème commande",
+                  "message": "Tentative sur la commande d'un autre client.",
+                  "category": "ORDER",
+                  "orderId": 202
+                }
+                """;
+
+        mockMvc.perform(post("/api/v1/support/tickets")
+                        .with(jwt().jwt(j -> j.subject(CLIENT_A)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(status().isNotFound());
+
+        assertThat(ticketRepository.count()).isZero();
+    }
+
+    @Test
+    void shouldRejectTicketWhenOrderExceeds14DaysWindow() throws Exception {
+        String payload = """
+                {
+                  "subject": "Retour hors délai",
+                  "message": "Commande passée il y a plus de 14 jours.",
+                  "category": "RETURN_REFUND",
+                  "orderId": 303
+                }
+                """;
+
+        mockMvc.perform(post("/api/v1/support/tickets")
+                        .with(jwt().jwt(j -> j.subject(CLIENT_A)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(status().isConflict());
+
+        assertThat(ticketRepository.count()).isZero();
+    }
+
+    @Test
+    void shouldRejectOrderCategoryWithoutOrderReference() throws Exception {
+        String payload = """
+                {
+                  "subject": "Question livraison",
+                  "message": "Où est mon colis ?",
+                  "category": "DELIVERY"
+                }
+                """;
+
+        mockMvc.perform(post("/api/v1/support/tickets")
+                        .with(jwt().jwt(j -> j.subject(CLIENT_A)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(status().isBadRequest());
     }
 
     @Test
