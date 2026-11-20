@@ -22,6 +22,7 @@ public class CartResponse {
     private String sessionToken;
     private Instant updatedAt;
     private List<CartItemResponse> items;
+    private List<SuggestedAccessoryResponse> suggestedAccessories;
     private int totalItems;
 
     public static CartResponse fromEntity(Cart cart) {
@@ -41,6 +42,7 @@ public class CartResponse {
                 .sessionToken(cart.getSessionToken())
                 .updatedAt(cart.getUpdatedAt())
                 .items(itemResponses)
+                .suggestedAccessories(Collections.emptyList())
                 .totalItems(count)
                 .build();
     }

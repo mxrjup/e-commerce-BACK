@@ -34,4 +34,11 @@ public class InternalVariantController {
     public List<InternalVariantResponse> variants(@RequestParam(required = false) List<Long> ids) {
         return internalCatalogService.variants(ids);
     }
+
+    @GetMapping("/accessories")
+    public List<InternalVariantResponse> accessories(@RequestParam(required = false) List<Long> ids,
+                                                     @RequestParam(defaultValue = ""
+                                                             + InternalCatalogService.DEFAULT_ACCESSORY_LIMIT) int limit) {
+        return internalCatalogService.accessoryVariants(ids, limit);
+    }
 }

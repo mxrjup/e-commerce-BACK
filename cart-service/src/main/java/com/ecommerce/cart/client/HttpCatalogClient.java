@@ -62,4 +62,25 @@ public class HttpCatalogClient implements CatalogClient {
             return List.of();
         }
     }
+
+    @Override
+    public List<CatalogVariantResponse> getAccessoryVariants(List<Long> variantIds, int limit) {
+        if (variantIds == null || variantIds.isEmpty()) {
+            return List.of();
+        }
+
+        try {
+            return restClient.get()
+                    .uri(uriBuilder -> uriBuilder
+                            .path("/api/internal/catalog/variants/accessories")
+                            .queryParam("ids", variantIds)
+                            .queryParam("limit", limit)
+                            .build())
+                    .retrieve()
+                    .body(new ParameterizedTypeReference<List<CatalogVariantResponse>>() {});
+        } catch (Exception e) {
+            log.warn("Unable to retrieve accessory variants {} from catalog service: {}", variantIds, e.getMessage());
+            return List.of();
+        }
+    }
 }

@@ -29,6 +29,14 @@ public interface VariantRepository extends JpaRepository<Variant, Long> {
     @EntityGraph(attributePaths = {"product", "product.vatRate", "values", "values.attribute"})
     List<Variant> findWithDetailsByIdIn(Collection<Long> ids);
 
+    @EntityGraph(attributePaths = {"product", "product.vatRate", "values", "values.attribute"})
+    @Query("select distinct v from Product source"
+            + " join source.accessories accessory"
+            + " join accessory.variants v"
+            + " where source.id in :sourceProductIds"
+            + " order by v.product.id, v.id")
+    List<Variant> findAccessoryVariantsBySourceProductIds(@Param("sourceProductIds") Collection<Long> sourceProductIds);
+
     /**
      * The back-office inventory (C07): every variant, whatever the status of
      * its product, only the alerts when asked. {@code pattern} is a lowercase

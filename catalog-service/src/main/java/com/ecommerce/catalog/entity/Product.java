@@ -74,6 +74,12 @@ public class Product extends AuditedEntity {
             inverseJoinColumns = @JoinColumn(name = "univers_id"))
     private Set<Universe> universes = new LinkedHashSet<>();
 
+    @ManyToMany
+    @JoinTable(name = "produit_accessoire",
+            joinColumns = @JoinColumn(name = "produit_id"),
+            inverseJoinColumns = @JoinColumn(name = "accessoire_produit_id"))
+    private Set<Product> accessories = new LinkedHashSet<>();
+
     /** Adds a variant and sets its back-reference, so both sides agree. */
     public Variant addVariant(Variant variant) {
         variant.setProduct(this);

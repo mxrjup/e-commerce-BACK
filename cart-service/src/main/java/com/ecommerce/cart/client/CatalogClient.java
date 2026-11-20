@@ -12,4 +12,8 @@ public interface CatalogClient {
                 .flatMap(Optional::stream)
                 .toList();
     }
+
+    default List<CatalogVariantResponse> getAccessoryVariants(List<Long> variantIds, int limit) {
+        return List.of();
+    }
 }
