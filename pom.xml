@@ -30,6 +30,7 @@
         <module>order-service</module>
         <module>mcp-service</module>
         <module>notification-service</module>
+        <module>support-service</module>
     </modules>
 
     <properties>

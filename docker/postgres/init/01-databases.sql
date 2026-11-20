@@ -8,3 +8,4 @@ CREATE DATABASE ecommerce_order;
 CREATE DATABASE ecommerce_mcp;
 CREATE DATABASE ecommerce_users;
 CREATE DATABASE ecommerce_notifications;
+CREATE DATABASE ecommerce_support;

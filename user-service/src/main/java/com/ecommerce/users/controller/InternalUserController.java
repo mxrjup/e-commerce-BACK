@@ -70,4 +70,19 @@ public class InternalUserController {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"));
     }
 
+    @GetMapping("/by-subject/{subject}")
+    public UserContact getBySubject(@PathVariable String subject) {
+        if (subject == null || subject.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Subject is required");
+        }
+        return repository.findByAuthProviderId(subject)
+                .map(user -> new UserContact(
+                        user.getId(),
+                        user.getAuthProviderId(),
+                        user.getEmail(),
+                        user.getFirstName()
+                ))
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"));
+    }
+
 }
