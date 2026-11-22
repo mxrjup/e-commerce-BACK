@@ -510,7 +510,8 @@ public class OrderService {
     }
 
     public OrderResponse getOrderByNumberForInternal(String orderNumber, Long userId) {
-        Order order = orderRepository.findByOrderNumber(orderNumber)
+        String normalizedOrderNumber = orderNumber == null ? null : orderNumber.trim().toUpperCase(java.util.Locale.ROOT);
+        Order order = orderRepository.findByOrderNumber(normalizedOrderNumber)
             .orElseThrow(() -> new ResourceNotFoundException("Commande introuvable : " + orderNumber));
         if (!order.getUserId().equals(userId)) {
             throw new ResourceNotFoundException("Commande introuvable : " + orderNumber);
