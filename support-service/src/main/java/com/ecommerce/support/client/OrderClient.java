@@ -3,7 +3,6 @@ package com.ecommerce.support.client;
 import com.ecommerce.common.exception.ResourceNotFoundException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
@@ -14,13 +13,10 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Duration;
 import java.time.Instant;
-import java.util.List;
 
 @Slf4j
 @Component
 public class OrderClient {
-
-    private static final String HEADER_USER_ID = "X-User-Id";
 
     private final RestClient restClient;
 
@@ -39,8 +35,10 @@ public class OrderClient {
     public OrderSummary getCustomerOrderById(Long userId, Long orderId) {
         try {
             OrderSummary response = restClient.get()
-                    .uri("/api/orders/{orderId}", orderId)
-                    .header(HEADER_USER_ID, String.valueOf(userId))
+                    .uri(uriBuilder -> uriBuilder
+                            .path("/api/internal/orders/{orderId}")
+                            .queryParam("userId", userId)
+                            .build(orderId))
                     .retrieve()
                     .body(OrderSummary.class);
             if (response == null) {
@@ -57,20 +55,19 @@ public class OrderClient {
 
     public OrderSummary getCustomerOrderByNumber(Long userId, String orderNumber) {
         try {
-            List<OrderSummary> orders = restClient.get()
-                    .uri("/api/orders/history")
-                    .header(HEADER_USER_ID, String.valueOf(userId))
+            OrderSummary response = restClient.get()
+                    .uri(uriBuilder -> uriBuilder
+                            .path("/api/internal/orders/by-number/{orderNumber}")
+                            .queryParam("userId", userId)
+                            .build(orderNumber))
                     .retrieve()
-                    .body(new ParameterizedTypeReference<>() {});
-            if (orders == null) {
+                    .body(OrderSummary.class);
+            if (response == null) {
                 throw new ResourceNotFoundException("Commande introuvable : " + orderNumber);
             }
-            return orders.stream()
-                    .filter(order -> order.orderNumber() != null && order.orderNumber().equalsIgnoreCase(orderNumber))
-                    .findFirst()
-                    .orElseThrow(() -> new ResourceNotFoundException("Commande introuvable : " + orderNumber));
-        } catch (ResourceNotFoundException e) {
-            throw e;
+            return response;
+        } catch (HttpClientErrorException.NotFound e) {
+            throw new ResourceNotFoundException("Commande introuvable : " + orderNumber);
         } catch (RestClientException e) {
             log.error("Erreur lors de l'appel à order-service pour orderNumber={} : {}", orderNumber, e.getMessage());
             throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Service Commande indisponible");

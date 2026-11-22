@@ -90,7 +90,7 @@ class ServiceReadToolsHttpTest extends McpHttpTest {
         }
         assertThat(requests).containsExactlyInAnyOrder(
                 "GET /api/internal/catalog/variants/1", "GET /api/internal/catalog/variants?ids=1,2",
-                "GET /api/admin/orders/1", "GET /api/admin/orders?userId=1&status=NEW",
+                "GET /api/internal/orders/1", "GET /api/internal/orders?userId=1&status=NEW",
                 "GET /api/internal/users/1", "GET /api/internal/users?page=0&size=10");
     }
 

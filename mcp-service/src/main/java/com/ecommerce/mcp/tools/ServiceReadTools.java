@@ -44,7 +44,7 @@ public class ServiceReadTools {
     public Order getOrder(@McpToolParam(description = "Positive order ID", required = true) Long id) {
         McpAuthentication.requireScope(McpScope.ORDERS_READ);
         positive(id);
-        return client.orders("/api/admin/orders/" + id, Order.class);
+        return client.orders("/api/internal/orders/" + id, Order.class);
     }
 
     @McpTool(name = "list_user_orders", description = "Read live orders for one user, optionally filtered by status.",
@@ -54,7 +54,7 @@ public class ServiceReadTools {
             @McpToolParam(description = "Optional order status", required = false) OrderStatus status) {
         McpAuthentication.requireScope(McpScope.ORDERS_READ);
         positive(userId);
-        String path = "/api/admin/orders?userId=" + userId + (status == null ? "" : "&status=" + status.name());
+        String path = "/api/internal/orders?userId=" + userId + (status == null ? "" : "&status=" + status.name());
         return new Orders(Arrays.asList(client.orders(path, Order[].class)));
     }
 

@@ -499,4 +499,23 @@ public class OrderService {
 
         kafkaTemplate.send(KafkaTopics.ORDER_STATUS_CHANGED, event);
     }
+
+    public OrderResponse getOrderForInternal(Long orderId, Long userId) {
+        Order order = orderRepository.findById(orderId)
+            .orElseThrow(() -> new ResourceNotFoundException("Commande introuvable : " + orderId));
+        if (userId != null && !order.getUserId().equals(userId)) {
+            throw new ResourceNotFoundException("Commande introuvable : " + orderId);
+        }
+        return OrderResponse.fromEntity(order);
+    }
+
+    public OrderResponse getOrderByNumberForInternal(String orderNumber, Long userId) {
+        String normalizedOrderNumber = orderNumber == null ? null : orderNumber.trim().toUpperCase(java.util.Locale.ROOT);
+        Order order = orderRepository.findByOrderNumber(normalizedOrderNumber)
+            .orElseThrow(() -> new ResourceNotFoundException("Commande introuvable : " + orderNumber));
+        if (!order.getUserId().equals(userId)) {
+            throw new ResourceNotFoundException("Commande introuvable : " + orderNumber);
+        }
+        return OrderResponse.fromEntity(order);
+    }
 }

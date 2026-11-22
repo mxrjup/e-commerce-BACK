@@ -664,4 +664,18 @@ class OrderServiceTest {
         verify(kafkaTemplate, never()).send(anyString(), any());
     }
 
+    @Test
+    @DisplayName("Internal order lookup normalizes lowercase and surrounding whitespace")
+    void testGetOrderByNumberForInternal_NormalizesCaseAndWhitespace() {
+        Order order = new Order();
+        order.setUserId(42L);
+        order.setOrderNumber("CMD-2026-000101");
+        order.setCreatedAt(Instant.parse("2026-11-12T10:00:00Z"));
+        order.setStatus(OrderStatus.DELIVERED);
+        orderRepository.save(order);
+
+        OrderResponse result = orderService.getOrderByNumberForInternal("  cmd-2026-000101  ", 42L);
+
+        assertEquals("CMD-2026-000101", result.getOrderNumber());
+    }
 }
