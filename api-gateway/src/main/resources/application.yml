@@ -35,11 +35,11 @@ spring:
           predicates:
             - Path=/api/admin/orders/**
         - id: user-service-users
-          uri: ${USER_SERVICE_URL:http://localhost:8082}
+          uri: ${USER_SERVICE_URI:http://localhost:8082}
           predicates:
             - Path=/api/v1/users/**
         - id: user-service-addresses
-          uri: ${USER_SERVICE_URL:http://localhost:8082}
+          uri: ${USER_SERVICE_URI:http://localhost:8082}
           predicates:
             - Path=/api/v1/addresses/**
         - id: mcp-admin
@@ -68,11 +68,11 @@ spring:
           metadata:
             response-timeout: -1
         - id: user-service-store-settings
-          uri: ${USER_SERVICE_URL:http://localhost:8082}
+          uri: ${USER_SERVICE_URI:http://localhost:8082}
           predicates:
             - Path=/api/v1/store-settings/**
         - id: user-service-admin-store-settings
-          uri: ${USER_SERVICE_URL:http://localhost:8082}
+          uri: ${USER_SERVICE_URI:http://localhost:8082}
           predicates:
             - Path=/api/admin/store-settings/**
       httpclient:
