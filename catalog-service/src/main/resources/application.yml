@@ -1,5 +1,10 @@
 server:
   port: 8081
+  tomcat:
+    # Une photo trop grosse (plus de 5 Mo) est refusee, mais Tomcat ne lit et ne jette que 2 Mo du
+    # reste de l'envoi par defaut : au-dela, il arrete de lire sans repondre, et le client reste
+    # bloque. Jusqu'a 20 Mo, il lit tout et repond 413 ; au-dela, il coupe la connexion.
+    max-swallow-size: 20MB
 
 spring:
   application:

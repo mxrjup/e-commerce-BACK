@@ -675,7 +675,10 @@ blanc ne se ressemblent pas) ; la position 1 est la miniature principale.
   back-office l'utilisent telle quelle. À régler par environnement.
 - **Le format** se lit sur les premiers octets du fichier (JPEG, PNG, WebP),
   jamais sur son nom ni sur le type annoncé par le navigateur. **5 Mo** par
-  photo (413 au-delà) et **10 photos** par variante (409).
+  photo (413 au-delà) et **10 photos** par variante (409). Pour que le 413
+  arrive vraiment, `server.tomcat.max-swallow-size` est à 20 Mo : par défaut,
+  Tomcat ne lit que 2 Mo d'un envoi refusé et laisse le client bloqué sans
+  réponse (constaté avec un fichier de 6 Mo).
 - **Le nom du fichier** est tiré au hasard (UUID) par le service, jamais repris
   de l'envoi : un nom piégé (`../../etc/passwd`) ne peut ni écrire ni lire hors
   du dossier.
