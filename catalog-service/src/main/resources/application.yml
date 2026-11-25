@@ -25,6 +25,21 @@ spring:
     show-sql: false
     open-in-view: false
 
+  # Les photos des variantes (C06) : 5 Mo par image, un peu plus pour l'enveloppe du formulaire.
+  servlet:
+    multipart:
+      max-file-size: 5MB
+      max-request-size: 6MB
+
+catalog:
+  images:
+    # Un volume Docker en local, un PVC en Kubernetes : les photos survivent aux redemarrages.
+    directory: ${CATALOG_IMAGES_DIR:/data/images}
+    # L'adresse publique ou la gateway les sert (GET /api/catalog/images/**). Elle est enregistree
+    # telle quelle dans variante_image : la vitrine, le mobile et le back-office l'utilisent sans calcul.
+    public-url: ${CATALOG_IMAGES_PUBLIC_URL:http://localhost:8080/api/catalog/images}
+    max-per-variant: 10
+
 ---
 spring:
   config:
@@ -45,3 +60,8 @@ spring:
 
   jpa:
     show-sql: true
+
+catalog:
+  images:
+    # Hors Docker, /data n'existe pas forcement : les photos vont dans le dossier temporaire.
+    directory: ${CATALOG_IMAGES_DIR:${java.io.tmpdir}/log-catalog-images}
