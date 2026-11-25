@@ -23,3 +23,9 @@ spring:
   kafka:
     listener:
       auto-startup: false
+
+# Les tests d'images (C06) remplacent ce dossier par un dossier temporaire a eux.
+catalog:
+  images:
+    directory: ${java.io.tmpdir}/log-catalog-images-test
+    public-url: http://localhost:8080/api/catalog/images

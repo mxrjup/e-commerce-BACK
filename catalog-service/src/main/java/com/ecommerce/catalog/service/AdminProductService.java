@@ -11,6 +11,7 @@ import com.ecommerce.catalog.entity.ProductSpecification;
 import com.ecommerce.catalog.entity.ProductStatus;
 import com.ecommerce.catalog.entity.Universe;
 import com.ecommerce.catalog.entity.Variant;
+import com.ecommerce.catalog.entity.VariantImage;
 import com.ecommerce.catalog.entity.VatRate;
 import com.ecommerce.catalog.repository.BrandRepository;
 import com.ecommerce.catalog.repository.CategoryRepository;
@@ -18,6 +19,7 @@ import com.ecommerce.catalog.repository.ProductRepository;
 import com.ecommerce.catalog.repository.UniverseRepository;
 import com.ecommerce.catalog.repository.VatRateRepository;
 import com.ecommerce.catalog.support.CategoryTree;
+import com.ecommerce.catalog.support.ImageStorage;
 import com.ecommerce.catalog.support.LikePatterns;
 import com.ecommerce.catalog.support.Persistence;
 import com.ecommerce.catalog.support.Slugs;
@@ -73,6 +75,7 @@ public class AdminProductService {
     private final CategoryRepository categoryRepository;
     private final VatRateRepository vatRateRepository;
     private final UniverseRepository universeRepository;
+    private final ImageStorage imageStorage;
 
     /**
      * @param search     part of the title, the slug or a SKU, case-insensitive; null or blank for all
@@ -150,6 +153,11 @@ public class AdminProductService {
             throw new ConflictException("Only a draft can be deleted: product '" + product.getSlug()
                     + "' is " + product.getStatus() + ", archive it instead");
         }
+        // Les photos de ses variantes partent avec lui, une fois la suppression enregistree (C06).
+        imageStorage.deleteAfterCommit(product.getVariants().stream()
+                .flatMap(variant -> variant.getImages().stream())
+                .map(VariantImage::getUrl)
+                .toList());
         productRepository.delete(product);
         productRepository.flush();
     }

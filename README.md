@@ -650,6 +650,49 @@ Les tests `AdminProductApiTest` et `AttributeApiTest` tournent sur H2, puis
 sont rejoués tels quels sur PostgreSQL 16 (`PostgresAdminProductApiTest`,
 `PostgresAttributeApiTest`, Testcontainers).
 
+### Images
+
+`C06` (#6) : les photos des variantes, pour l'écran de glisser-déposer du
+back-office (`C18` #15). Une variante a ses propres photos (le noir et le
+blanc ne se ressemblent pas) ; la position 1 est la miniature principale.
+
+| Chemin | Effet |
+|---|---|
+| `POST /api/admin/catalog/variants/{id}/images` | un formulaire multipart avec un champ `file` ; la photo se place en dernier. Répond la variante et ses photos (201) |
+| `DELETE /api/admin/catalog/variants/{id}/images/{imageId}` | retire la photo ; les suivantes remontent, les positions restent 1, 2, 3… |
+| `PUT /api/admin/catalog/variants/{id}/images/order` | `{"imageIds": [7, 3, 5]}` : chaque photo une fois, la première devient la miniature |
+| `GET /api/catalog/images/{fichier}` | **public**, comme tout `GET /api/catalog/**` : sert la photo, avec un cache d'un an (`immutable`), puisqu'un fichier ne change jamais |
+
+- **Où.** Des fichiers dans un dossier (`catalog.images.directory`,
+  `CATALOG_IMAGES_DIR`, `/data/images` par défaut) : le volume
+  `catalog-images` en Docker Compose, **un PVC en Kubernetes**, monté sur
+  `/data/images` du Deployment `catalog-service`. Le `Dockerfile` crée ce
+  dossier pour l'utilisateur `spring`, sans quoi un volume monté dessus ne
+  serait pas accessible en écriture.
+- **L'adresse enregistrée** dans `variante_image.url` est l'adresse publique
+  (`CATALOG_IMAGES_PUBLIC_URL`, `http://localhost:8080/api/catalog/images` par
+  défaut) suivie du nom du fichier : la vitrine, le mobile, le panier et le
+  back-office l'utilisent telle quelle. À régler par environnement.
+- **Le format** se lit sur les premiers octets du fichier (JPEG, PNG, WebP),
+  jamais sur son nom ni sur le type annoncé par le navigateur. **5 Mo** par
+  photo (413 au-delà) et **10 photos** par variante (409). Pour que le 413
+  arrive vraiment, `server.tomcat.max-swallow-size` est à 20 Mo : par défaut,
+  Tomcat ne lit que 2 Mo d'un envoi refusé et laisse le client bloqué sans
+  réponse (constaté avec un fichier de 6 Mo).
+- **Le nom du fichier** est tiré au hasard (UUID) par le service, jamais repris
+  de l'envoi : un nom piégé (`../../etc/passwd`) ne peut ni écrire ni lire hors
+  du dossier.
+- **Les fichiers suivent la base.** Supprimer une photo, une variante ou un
+  brouillon supprime les fichiers **après** l'enregistrement en base : si la
+  suppression échoue, la photo est toujours là. Un envoi dont la transaction
+  échoue ne laisse pas de fichier derrière lui. Comme les autres écritures sur
+  un produit, chaque envoi verrouille d'abord le produit : deux envois
+  simultanés ne prennent pas tous les deux la dixième place.
+- **Pas de redimensionnement** : le service garde la photo telle qu'elle est
+  envoyée, et les écrans l'affichent à la taille voulue. Générer des
+  miniatures demanderait une bibliothèque d'images ; c'est l'évolution
+  naturelle si les photos deviennent lourdes.
+
 ### Stock
 
 `C07` (#7) : l'inventaire du back-office (écran `C20` #16), les corrections

@@ -6,10 +6,12 @@ import com.ecommerce.catalog.entity.AttributeValue;
 import com.ecommerce.catalog.entity.Product;
 import com.ecommerce.catalog.entity.ProductStatus;
 import com.ecommerce.catalog.entity.Variant;
+import com.ecommerce.catalog.entity.VariantImage;
 import com.ecommerce.catalog.repository.AttributeValueRepository;
 import com.ecommerce.catalog.repository.ProductRepository;
 import com.ecommerce.catalog.repository.VariantRepository;
 import com.ecommerce.catalog.support.Designations;
+import com.ecommerce.catalog.support.ImageStorage;
 import com.ecommerce.catalog.support.Persistence;
 import com.ecommerce.common.exception.BadRequestException;
 import com.ecommerce.common.exception.ConflictException;
@@ -43,6 +45,7 @@ public class AdminVariantService {
     private final VariantRepository variantRepository;
     private final ProductRepository productRepository;
     private final AttributeValueRepository attributeValueRepository;
+    private final ImageStorage imageStorage;
 
     @Transactional
     public AdminVariantResponse create(Long productId, AdminVariantRequest request) {
@@ -83,6 +86,8 @@ public class AdminVariantService {
             throw new ConflictException("Only a variant of a draft product can be deleted: set the stock of '"
                     + variant.getSku() + "' to 0, or archive product '" + product.getSlug() + "'");
         }
+        // Ses photos partent avec elle, une fois la suppression enregistree (C06).
+        imageStorage.deleteAfterCommit(variant.getImages().stream().map(VariantImage::getUrl).toList());
         product.getVariants().remove(variant);
         productRepository.flush();
     }
