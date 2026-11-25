@@ -64,6 +64,9 @@ ARG SERVER_PORT=8080
 
 # Jamais root dans le conteneur.
 RUN addgroup -S spring && adduser -S spring -G spring
+# Le dossier des photos du catalogue (C06) : un volume monte dessus en herite le proprietaire,
+# sans quoi l'utilisateur spring ne pourrait pas y ecrire. Vide et inutilise pour les autres modules.
+RUN mkdir -p /data/images && chown spring:spring /data/images
 WORKDIR /app
 
 COPY --from=build --chown=spring:spring /build/extracted/dependencies/ ./
