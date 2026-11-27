@@ -898,7 +898,7 @@ endroit où une route devient publique, authentifiée ou réservée au back-offi
 | `/api/orders/**` | `order-service` | jeton valide |
 | `/api/admin/orders/**` | `order-service` | rôle `collaborator` ou `admin` |
 | `/api/mcp` | `mcp-service` | rôle `admin` |
-| `/actuator/health`, `/actuator/info` | gateway | public |
+| `/actuator/health`, `/actuator/info`, `/actuator/prometheus` | gateway | sans jeton, mais jamais exposé par l'Ingress (`/api` et `/auth` seulement) |
 | tout le reste | — | jeton valide : on refuse par défaut |
 
 Convention : chaque service expose son sous-arbre d'administration sous
@@ -1157,6 +1157,46 @@ La CI n'a pas à être modifiée : elle lit la liste des modules dans le
 
 Une version de dépendance absente du BOM Spring Boot se déclare dans le
 `dependencyManagement` du POM racine, **jamais** dans le module.
+
+## Supervision : les métriques des services
+
+`D06` (#17) : chaque service expose ses métriques au format Prometheus sur
+`/actuator/prometheus`, sur son propre port. Prometheus les lit toutes les
+15 s ; Prometheus, Grafana et les dashboards sont dans `e-commerce-INFRA`
+(`monitoring/`).
+
+Rien à déclarer dans un service : `common-lib` apporte l'actuator et
+`micrometer-registry-prometheus`, et `MonitoringDefaultsEnvironmentPostProcessor`
+ajoute les réglages communs (`monitoring-defaults.properties`), avec la
+priorité la plus basse, comme ceux de Kafka :
+
+- `health`, `info` et `prometheus` exposés, rien d'autre (ni `env`, ni
+  `beans`, ni `heapdump`) ; sondes `liveness` et `readiness` activées ;
+- un tag **`application`** = `spring.application.name` sur chaque mesure :
+  un seul dashboard pour les huit services ;
+- les temps de réponse HTTP (`http_server_requests_seconds`) en
+  **histogramme**, de 5 ms à 10 s, pour calculer le 95e percentile ; de même
+  pour les requêtes relayées par la gateway, mesurées par route
+  (`spring_cloud_gateway_requests_seconds`, tag `routeId`).
+
+Ce qu'on y trouve sans rien coder : requêtes HTTP par route, statut et
+durée ; mémoire, GC et threads de la JVM ; CPU ; pool de connexions HikariCP ;
+consommateurs et producteurs Kafka.
+
+**Accès.** Les services protégés par un jeton (gateway, utilisateurs, SAV,
+notifications) laissent passer `/actuator/health/**`, `/actuator/info` et
+`/actuator/prometheus` sans jeton : Prometheus n'en a pas. Ces chemins ne sont
+jamais publics : l'Ingress n'ouvre que `/api` et `/auth`, et aucune route de
+la gateway ne mène à un `/actuator`. Un port de management séparé serait plus
+strict, mais changerait les sondes et healthchecks existants.
+
+```bash
+curl -s http://localhost:8081/actuator/prometheus | grep application=
+```
+
+`MetricsEndpointTest` (et `GatewayMetricsTest`) le vérifient service par
+service. Spring Boot coupe l'export des métriques dans les tests : ces classes
+le rétablissent avec `@AutoConfigureObservability`.
 
 ## Contrat d'erreur partagé
 
