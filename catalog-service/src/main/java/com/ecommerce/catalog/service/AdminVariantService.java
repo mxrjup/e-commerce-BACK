@@ -16,6 +16,7 @@ import com.ecommerce.catalog.support.Persistence;
 import com.ecommerce.common.exception.BadRequestException;
 import com.ecommerce.common.exception.ConflictException;
 import com.ecommerce.common.exception.ResourceNotFoundException;
+import jakarta.persistence.EntityManager;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -46,6 +47,8 @@ public class AdminVariantService {
     private final ProductRepository productRepository;
     private final AttributeValueRepository attributeValueRepository;
     private final ImageStorage imageStorage;
+    private final CatalogEventPublisher events;
+    private final EntityManager entityManager;
 
     @Transactional
     public AdminVariantResponse create(Long productId, AdminVariantRequest request) {
@@ -60,7 +63,10 @@ public class AdminVariantService {
                 "A variant with SKU '" + variant.getSku() + "' already exists"));
     }
 
-    /** Everything but the stock and the alert threshold, which have their own endpoints (C07). */
+    /**
+     * Everything but the stock and the alert threshold, which have their own
+     * endpoints (C07). A lower price on a published product is announced (C09).
+     */
     @Transactional
     public AdminVariantResponse update(Long id, AdminVariantRequest request) {
         if (request.initialStock() != null || request.alertThreshold() != null) {
@@ -69,9 +75,16 @@ public class AdminVariantService {
         }
         Variant variant = find(id);
         Product product = lockProduct(variant);
+        // Relue sous le verrou : le prix d'avant est celui de la derniere modification enregistree, pas
+        // celui lu avant d'attendre le verrou, sinon une baisse pourrait etre annoncee pour une hausse.
+        entityManager.refresh(variant);
+        BigDecimal previousPrice = variant.unitPriceExclTax();
         apply(product, variant, request);
-        return AdminVariantResponse.from(Persistence.orConflict(() -> variantRepository.saveAndFlush(variant),
+        AdminVariantResponse response = AdminVariantResponse.from(Persistence.orConflict(
+                () -> variantRepository.saveAndFlush(variant),
                 "A variant with SKU '" + variant.getSku() + "' already exists"));
+        events.priceChanged(variant, previousPrice);
+        return response;
     }
 
     /**

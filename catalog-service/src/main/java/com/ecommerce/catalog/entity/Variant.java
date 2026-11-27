@@ -93,6 +93,15 @@ public class Variant extends AuditedEntity {
         return discountPriceExclTax != null ? discountPriceExclTax : salePriceExclTax;
     }
 
+    /**
+     * What the customer pays for one unit before VAT: the current price plus
+     * the eco-tax. The price of the internal API (C10) and of the price drop
+     * alerts (C09).
+     */
+    public BigDecimal unitPriceExclTax() {
+        return currentPriceExclTax().add(ecoTax != null ? ecoTax : BigDecimal.ZERO);
+    }
+
     public boolean isLowOnStock() {
         return stock <= alertThreshold;
     }

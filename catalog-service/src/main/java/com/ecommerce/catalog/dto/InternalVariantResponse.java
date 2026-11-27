@@ -43,14 +43,13 @@ public record InternalVariantResponse(
 
     public static InternalVariantResponse from(Variant variant) {
         Product product = variant.getProduct();
-        BigDecimal ecoTax = variant.getEcoTax() != null ? variant.getEcoTax() : BigDecimal.ZERO;
         return new InternalVariantResponse(
                 variant.getId(),
                 product.getId(),
                 product.getSlug(),
                 variant.getSku(),
                 Designations.of(variant),
-                variant.currentPriceExclTax().add(ecoTax),
+                variant.unitPriceExclTax(),
                 variant.getSalePriceExclTax(),
                 variant.getDiscountPriceExclTax(),
                 variant.getEcoTax(),
