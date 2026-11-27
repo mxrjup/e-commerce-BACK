@@ -71,7 +71,8 @@ public class SecurityConfig {
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .authorizeExchange(exchanges -> exchanges
                         .pathMatchers(HttpMethod.OPTIONS, "/**").permitAll()
-                        .pathMatchers("/actuator/health/**", "/actuator/info").permitAll()
+                        // Les metriques pour Prometheus (D06) : jamais publiques, l'Ingress n'ouvre que /api et /auth.
+                        .pathMatchers("/actuator/health/**", "/actuator/info", "/actuator/prometheus").permitAll()
                         // Le panier accepte les invites (P01) : un jeton est
                         // facultatif, et l'identite est injectee quand il y en a un.
                         .pathMatchers("/api/cart/**").permitAll()

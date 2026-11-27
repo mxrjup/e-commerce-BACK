@@ -97,15 +97,7 @@ gateway:
     # Back-office Vite et serveur de developpement Expo.
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:8081}
 
-management:
-  endpoints:
-    web:
-      exposure:
-        include: health,info
-  endpoint:
-    health:
-      probes:
-        enabled: true
+# Actuator : reglages communs dans common-lib (monitoring-defaults.properties, D06).
 
 logging:
   level:

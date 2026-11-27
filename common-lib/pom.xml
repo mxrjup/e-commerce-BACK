@@ -33,6 +33,19 @@
             <artifactId>spring-boot-starter-validation</artifactId>
             <optional>true</optional>
         </dependency>
+        <!--
+          Supervision (D06) : obligatoires, pas optionnelles, pour que chaque
+          service expose /actuator/health et /actuator/prometheus sans rien
+          declarer. Reglages communs : monitoring-defaults.properties.
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
+        </dependency>
         <!-- Format JSON des evenements partages. -->
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
