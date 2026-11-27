@@ -36,6 +36,7 @@ public class StockService {
     static final int MAX_SIZE = 100;
 
     private final VariantRepository variantRepository;
+    private final CatalogEventPublisher events;
     private final Clock clock = Clock.systemUTC();
 
     /**
@@ -59,7 +60,11 @@ public class StockService {
         return PageResponse.of(result.getContent(), page, size, result.getTotalElements());
     }
 
-    /** A manual correction: refused, and nothing changes, if the stock would go below zero. */
+    /**
+     * A manual correction: refused, and nothing changes, if the stock would go
+     * below zero. Units added to a published variant that had none are
+     * announced (C09).
+     */
     @Transactional
     public InventoryItemResponse adjust(Long variantId, int delta) {
         requireExisting(variantId);
@@ -67,7 +72,11 @@ public class StockService {
             throw new ConflictException("Variant " + variantId + " does not have enough stock to remove "
                     + Math.abs(delta) + " units");
         }
-        return reload(variantId);
+        // La ligne reste verrouillee par l'UPDATE jusqu'a la fin de la transaction : le stock relu est
+        // exactement l'ancien plus delta, rien d'autre n'a pu le changer entre-temps.
+        InventoryItemResponse item = reload(variantId);
+        events.stockAdded(item.productId(), item.productStatus(), variantId, delta, item.stock());
+        return item;
     }
 
     @Transactional

@@ -30,6 +30,13 @@ spring:
     show-sql: false
     open-in-view: false
 
+  # Les evenements du catalogue (C09) partent apres l'enregistrement, dans la requete du back-office :
+  # si le broker est injoignable, l'envoi abandonne apres 5 s (60 par defaut) et la modification reste.
+  kafka:
+    producer:
+      properties:
+        max.block.ms: 5000
+
   # Les photos des variantes (C06) : 5 Mo par image, un peu plus pour l'enveloppe du formulaire.
   servlet:
     multipart:

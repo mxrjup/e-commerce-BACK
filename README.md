@@ -754,6 +754,47 @@ Docker Compose, comme le panier. Les tests H2 coupent le consommateur
 (`spring.kafka.listener.auto-startup: false`) ; `OrderPaidStockKafkaIntegrationTest`
 le rejoue sur un vrai broker.
 
+### Baisses de prix et retours en stock
+
+`C09` (#8) : le catalogue publie sur `catalogue.evenements` deux événements de
+`common-lib`, que `notification-service` transforme en alertes pour les
+clients qui suivent la variante (`N03`) :
+
+| Événement | Quand | Contenu |
+|---|---|---|
+| `PriceDroppedEvent` | Une variante modifiée (`PUT /variants/{id}`) coûte moins cher au client | prix unitaire HT avant et après |
+| `BackInStockEvent` | Un ajustement d'inventaire fait passer le stock de **0** à plus de 0 | unités disponibles |
+
+- **Le prix comparé** est celui que le client paie avant TVA : la remise s'il
+  y en a une, sinon le prix de vente, plus l'écotaxe (`Variant.unitPriceExclTax`,
+  le même que l'API interne). Une hausse, ou un prix barré qui change sous une
+  remise inchangée, n'envoie rien.
+- **Le retour en stock** ne vient que de l'inventaire : une variante créée avec
+  du stock n'a jamais été en rupture, et une commande payée ne fait que
+  baisser le stock. Le stock relu après l'ajustement est exactement l'ancien
+  plus l'écart (la ligne reste verrouillée jusqu'à la fin de la transaction),
+  donc « 0 avant » est sûr même avec des commandes en parallèle.
+- **Seulement pour un produit publié** : personne ne peut suivre un brouillon
+  ni un produit archivé.
+- **Après l'enregistrement, jamais avant** : l'envoi part dans `afterCommit`.
+  Une modification annulée n'annonce rien. Le prix d'avant est relu sous le
+  verrou du produit : deux modifications simultanées ne font pas annoncer une
+  baisse pour une hausse.
+- **Clé = id de la variante** : les événements d'une variante arrivent dans
+  l'ordre où ils sont partis.
+- **Sans bloquer le back-office** : si le broker est injoignable, l'envoi
+  abandonne au bout de 5 s (`max.block.ms`), la modification reste
+  enregistrée, l'événement est perdu et un **WARN** le dit. Une alerte ratée
+  est moins grave qu'un prix ou un stock impossible à changer.
+  L'alternative robuste, notée ici pour plus tard : une table « outbox »
+  écrite dans la même transaction et relue par un relais qui publie et
+  réessaie. Plus de code et une table de plus pour un cas rare, d'où la
+  version simple (règle n°1).
+
+Les tests H2 n'envoient rien (`catalog.events.enabled: false`, pas de
+broker) ; `CatalogEventsTest` les réactive avec un `KafkaTemplate` simulé, et
+`CatalogEventsKafkaIntegrationTest` vérifie les messages sur un vrai broker.
+
 ## Collaborateurs (Keycloak)
 
 `user-service` (`U04` #91) gère les comptes du back-office **dans Keycloak et
