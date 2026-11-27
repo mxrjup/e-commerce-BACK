@@ -54,15 +54,7 @@ mcp:
   security:
     protected-paths: /sse,/mcp,/mcp/*
 
-management:
-  endpoints:
-    web:
-      exposure:
-        include: health,info
-  endpoint:
-    health:
-      probes:
-        enabled: true
+# Actuator : reglages communs dans common-lib (monitoring-defaults.properties, D06).
 
 ---
 spring:
