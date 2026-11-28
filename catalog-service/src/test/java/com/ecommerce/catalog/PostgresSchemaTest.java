@@ -1,6 +1,7 @@
 package com.ecommerce.catalog;
 
 import com.ecommerce.catalog.repository.ProductRepository;
+import com.ecommerce.catalog.service.ProductReviewService;
 import com.ecommerce.catalog.service.StockService;
 import com.ecommerce.catalog.support.DockerRequiredInCi;
 import com.ecommerce.common.exception.ConflictException;
@@ -23,6 +24,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.time.temporal.ChronoUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -59,12 +61,41 @@ class PostgresSchemaTest {
     @Autowired
     private StockService stockService;
 
+    @Autowired
+    private ProductReviewService reviewService;
+
     @Test
     void shouldMigrateValidateAndLoadTheDemoCatalogue() {
-        // Le contexte a demarre : Flyway a joue V1 a V5, et Hibernate a valide le schema.
+        // Flyway ran the migrations and Hibernate validated the schema at startup.
         assertThat(jdbcTemplate.queryForObject("SELECT MAX(version) FROM flyway_schema_history", String.class))
-            .isEqualTo("5");
+            .isEqualTo("6");
         assertThat(productRepository.count()).isEqualTo(19);
+    }
+
+    @Test
+    void shouldPersistReviewsAndEnforceConstraints() {
+        String slug = "logitech-g915-tkl";
+        var first = reviewService.save(slug, "reviewer-1", 1, "First version");
+        reviewService.save(slug, "reviewer-2", 5, "Second review");
+        var revised = reviewService.save(slug, "reviewer-1", 4, "Revised review");
+
+        assertThat(revised.id()).isEqualTo(first.id());
+        assertThat(revised.createdAt()).isCloseTo(first.createdAt(),
+                org.assertj.core.api.Assertions.within(1, ChronoUnit.MICROS));
+        var page = reviewService.list(slug, 0, 20);
+        assertThat(page.averageRating()).isEqualTo(4.5);
+        assertThat(page.totalReviews()).isEqualTo(2);
+        assertThat(page.reviews()).anySatisfy(review -> {
+            assertThat(review.id()).isEqualTo(revised.id());
+            assertThat(review.comment()).isEqualTo("Revised review");
+        });
+        assertThatThrownBy(() -> jdbcTemplate.update("UPDATE avis_produit SET note = 6 WHERE id = ?", first.id()))
+                .isInstanceOf(DataIntegrityViolationException.class);
+        assertThatThrownBy(() -> jdbcTemplate.update("""
+                INSERT INTO avis_produit (produit_id, auteur_subject, note, commentaire, date_creation, date_maj)
+                SELECT produit_id, auteur_subject, note, commentaire, date_creation, date_maj
+                FROM avis_produit WHERE id = ?
+                """, first.id())).isInstanceOf(DataIntegrityViolationException.class);
     }
 
     @Test

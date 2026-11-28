@@ -19,6 +19,10 @@ public interface ProductRepository extends JpaRepository<Product, Long>, JpaSpec
 
     Optional<Product> findBySlug(String slug);
 
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select p from Product p where p.slug = :slug")
+    Optional<Product> findForUpdateBySlug(@Param("slug") String slug);
+
     /**
      * The back-office product list (C04), with the brand and category of each
      * row in the same query. The variants come in one extra query, batched
