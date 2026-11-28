@@ -168,6 +168,33 @@ class GatewaySecurityTest {
     }
 
     @Test
+    void shouldRequireAnAuthenticatedSubjectForReviewWrites() throws InterruptedException {
+        String path = "/api/catalog/products/logitech-g915-tkl/reviews";
+        BACKEND.enqueue(ok());
+        webTestClient.get().uri(path)
+                .header(IdentityHeadersFilter.SUBJECT_HEADER, "forged")
+                .exchange().expectStatus().isOk();
+        assertThat(BACKEND.takeRequest().getHeader(IdentityHeadersFilter.SUBJECT_HEADER)).isNull();
+
+        webTestClient.post().uri(path)
+                .header(IdentityHeadersFilter.SUBJECT_HEADER, "forged")
+                .header("X-User-Id", "42")
+                .exchange().expectStatus().isUnauthorized();
+
+        givenTokenFor("reviewer-subject", "client");
+        BACKEND.enqueue(ok());
+        webTestClient.post().uri(path)
+                .header("Authorization", "Bearer any-value-the-decoder-is-mocked")
+                .header(IdentityHeadersFilter.SUBJECT_HEADER, "forged")
+                .header("X-User-Id", "42")
+                .exchange().expectStatus().isOk();
+        RecordedRequest forwarded = BACKEND.takeRequest();
+        assertThat(forwarded.getPath()).isEqualTo(path);
+        assertThat(forwarded.getHeader(IdentityHeadersFilter.SUBJECT_HEADER)).isEqualTo("reviewer-subject");
+        assertThat(forwarded.getHeader("X-User-Id")).isNull();
+    }
+
+    @Test
     void shouldRouteCatalogueAdministrationOnlyForTheBackOffice() throws InterruptedException {
         givenTokenFor("a-client", "client");
         webTestClient.post().uri("/api/admin/catalog/brands")

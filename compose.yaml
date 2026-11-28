@@ -258,7 +258,8 @@ services:
     ports:
       # 8081 est aussi le port par defaut du serveur Expo : CATALOG_PORT permet
       # de publier le catalogue ailleurs sur l'hote quand les deux tournent.
-      - "${CATALOG_PORT:-8081}:8081"
+      # Local debugging only. Public catalog traffic goes through the gateway.
+      - "127.0.0.1:${CATALOG_PORT:-8081}:8081"
     depends_on:
       postgres:
         condition: service_healthy

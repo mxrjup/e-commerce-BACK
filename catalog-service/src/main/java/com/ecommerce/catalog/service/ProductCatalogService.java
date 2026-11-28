@@ -5,6 +5,7 @@ import com.ecommerce.catalog.dto.PageResponse;
 import com.ecommerce.catalog.dto.ProductCardResponse;
 import com.ecommerce.catalog.dto.ProductDetailResponse;
 import com.ecommerce.catalog.entity.Category;
+import com.ecommerce.catalog.entity.Product;
 import com.ecommerce.catalog.entity.ProductStatus;
 import com.ecommerce.catalog.repository.CategoryRepository;
 import com.ecommerce.catalog.repository.ProductRepository;
@@ -24,6 +25,7 @@ import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 /** The storefront side of the products (C02): published products only. */
@@ -142,10 +144,13 @@ public class ProductCatalogService {
     /** A published product; a draft or an archived one is not found, like an unknown slug. */
     @Transactional(readOnly = true)
     public ProductDetailResponse get(String slug) {
-        return productRepository.findBySlug(slug)
+        return ProductDetailResponse.from(requireStorefrontProduct(slug, productRepository.findBySlug(slug)));
+    }
+
+    static Product requireStorefrontProduct(String slug, Optional<Product> candidate) {
+        return candidate
                 .filter(product -> product.getStatus() == ProductStatus.PUBLIE)
                 .filter(product -> !product.getVariants().isEmpty())
-                .map(ProductDetailResponse::from)
                 .orElseThrow(() -> new ResourceNotFoundException("Product '" + slug + "' not found"));
     }
 
