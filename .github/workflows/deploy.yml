@@ -81,6 +81,7 @@ jobs:
           install -m 600 /dev/null "$RUNNER_TEMP/kubeconfig"
           printf '%s\n' "$KUBECONFIG_CONTENT" > "$RUNNER_TEMP/kubeconfig"
           echo "KUBECONFIG=$RUNNER_TEMP/kubeconfig" >> "$GITHUB_ENV"
+          export KUBECONFIG="$RUNNER_TEMP/kubeconfig"
           kubectl version --client
           kubectl get deployments
 
