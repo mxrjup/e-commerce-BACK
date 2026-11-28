@@ -108,4 +108,29 @@ class UserServiceTest {
         assertThat(result.getContent().get(0).getEmail()).isEqualTo("alice@test.com");
         verify(userRepository, times(1)).searchUsers("alice", pageable);
     }
+
+    @Test
+    @DisplayName("Should list all users without the search query when no term is given")
+    void getUsers_WithoutSearch_ShouldListAllUsers() {
+        User u1 = User.builder().id(1L).email("alice@test.com").build();
+        Pageable pageable = PageRequest.of(0, 20);
+
+        when(userRepository.findAll(pageable)).thenReturn(new PageImpl<>(List.of(u1)));
+
+        assertThat(userService.getUsers(null, pageable).getContent()).hasSize(1);
+        assertThat(userService.getUsers("   ", pageable).getContent()).hasSize(1);
+        verify(userRepository, never()).searchUsers(any(), any());
+    }
+
+    @Test
+    @DisplayName("Should trim the search term before querying")
+    void getUsers_ShouldTrimSearchTerm() {
+        Pageable pageable = PageRequest.of(0, 20);
+
+        when(userRepository.searchUsers("alice", pageable)).thenReturn(Page.empty());
+
+        userService.getUsers("  alice ", pageable);
+
+        verify(userRepository).searchUsers("alice", pageable);
+    }
 }
