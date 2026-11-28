@@ -1,0 +1,11 @@
+[
+  {"orderId":"DEMO-1001","sku":"LOG-GPRO","productName":"Logitech G Pro","quantity":5,"shippedQuantity":2,"status":"IN_PREPARATION"},
+  {"orderId":"DEMO-1002","sku":"LOG-GPRO","productName":"Logitech G Pro","quantity":4,"shippedQuantity":0,"status":"IN_PREPARATION"},
+  {"orderId":"DEMO-1003","sku":"LOG-GPRO","productName":"Logitech G Pro","quantity":10,"shippedQuantity":0,"status":"CANCELLED"},
+  {"orderId":"DEMO-1004","sku":"LOG-GPRO","productName":"Logitech G Pro","quantity":2,"shippedQuantity":2,"status":"SHIPPED"},
+  {"orderId":"DEMO-1005","sku":"LOG-GPRO","productName":"Logitech G Pro","quantity":6,"shippedQuantity":0,"status":"NEW"},
+  {"orderId":"DEMO-1006","sku":"LOG-GPRO-X","productName":"Logitech G Pro X","quantity":3,"shippedQuantity":0,"status":"IN_PREPARATION"},
+  {"orderId":"DEMO-1007","sku":"RAZ-DEATHADDER-V3","productName":"Razer DeathAdder V3","quantity":2,"shippedQuantity":2,"status":"DELIVERED"},
+  {"orderId":"DEMO-1008","sku":"SONY-WH1000XM5","productName":"Sony WH-1000XM5","quantity":2,"shippedQuantity":0,"status":"IN_PREPARATION"},
+  {"orderId":"DEMO-1009","sku":"KEY-K2","productName":"Keychron K2","quantity":14,"shippedQuantity":0,"status":"IN_PREPARATION"}
+]

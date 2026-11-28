@@ -1,0 +1,14 @@
+# Explicitly opt in to local, read-only sample data. Never use for live stock.
+spring:
+  ai:
+    mcp:
+      server:
+        capabilities:
+          prompt: true
+        instructions: >-
+          Stock tools use seed/demo data, not live inventory. For stock questions,
+          call get_product_stock with the product name. Never invent quantities.
+          If several products match, ask which one. Always label seed quantities
+          as demonstration data.
+          For quantities still to send to customers, call get_pending_shipments;
+          only remaining units in IN_PREPARATION demo orders count as pending.

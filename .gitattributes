@@ -1,0 +1,15 @@
+# Normalise les fins de ligne dans le depot : LF partout.
+* text=auto eol=lf
+
+# Scripts du wrapper Maven : ne pas toucher aux fins de ligne.
+mvnw        text eol=lf
+mvnw.cmd    text eol=crlf
+
+# Binaires : jamais de conversion.
+*.jar   binary
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ico   binary
+*.pdf   binary

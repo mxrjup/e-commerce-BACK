@@ -1,0 +1,1439 @@
+# e-commerce — back-end
+
+Monorepo Maven multi-modules : un module par microservice, plus une librairie
+commune. Un seul POM parent fixe les versions, un seul `./mvnw clean verify`
+construit et teste l'ensemble.
+
+## Démarrage rapide
+
+```bash
+docker compose up -d                                # PostgreSQL, Keycloak, Kafka
+./mvnw clean install -DskipTests                    # construit common-lib et les services
+./mvnw -pl api-gateway spring-boot:run              # puis un terminal par service :
+./mvnw -pl cart-service spring-boot:run
+curl -i http://localhost:8080/api/cart              # 200, panier invité, via la gateway
+```
+
+Ou toute la pile en conteneurs : `docker compose --profile services up -d --build`.
+
+**Mettre en production, revenir en arrière, et la liste des variables
+d'environnement de chaque service** : [`docs/deploiement.md`](docs/deploiement.md).
+
+## Prérequis
+
+- **JDK 21** (version imposée par le POM parent)
+- **Docker** pour les dépendances locales (PostgreSQL, Keycloak, Kafka)
+- Maven n'est pas à installer : le wrapper `./mvnw` s'en charge
+
+## Construire et lancer
+
+```bash
+./mvnw clean verify                              # tous les modules + tests
+./mvnw -pl cart-service -am clean verify         # un seul module et ses dépendances
+./mvnw -pl cart-service spring-boot:run          # lancer un service
+```
+
+Pour démarrer un service sans PostgreSQL, le profil `local-h2` bascule sur une
+base en mémoire :
+
+```bash
+./mvnw -pl cart-service spring-boot:run -Dspring-boot.run.profiles=local-h2
+```
+
+## Stack locale (Docker Compose)
+
+`compose.yaml` démarre les dépendances dont les services ont besoin :
+PostgreSQL, Keycloak et Kafka, plus Kafka UI pour observer Kafka.
+
+```bash
+docker compose up -d              # les dépendances
+docker compose ps                 # état et santé des conteneurs
+docker compose logs -f keycloak   # les logs d'un service
+docker compose down               # arrêt, données conservées
+docker compose down -v            # arrêt + remise à zéro des données
+```
+
+| Service | Depuis l'hôte | Depuis le réseau Docker | Identifiants |
+|---|---|---|---|
+| PostgreSQL | `localhost:5432` | `postgres:5432` | `postgres` / `postgres` |
+| Keycloak | <http://localhost:8180> | `keycloak:8080` | `admin` / `admin` |
+| Kafka | `localhost:29092` | `kafka:9092` | — |
+| Kafka UI | <http://localhost:8090> | `kafka-ui:8080` | — |
+
+**Kafka UI** montre les topics et leurs messages (corps JSON et en-têtes, dont
+le type de l'événement), les consumer groups et leur **retard**, et les topics
+de rebut `*.dlt` : c'est là qu'on lit le message et l'exception d'un traitement
+en échec. En local, elle peut aussi publier un message de test (*Produce
+Message*). Sur le cluster, elle est en lecture seule et se consulte par
+`kubectl port-forward` : voir le README de `e-commerce-INFRA`, qui porte aussi
+l'exporteur Prometheus et le dashboard Grafana de Kafka.
+
+Les valeurs par défaut suffisent : la stack démarre sans configuration. Pour en
+changer une, `cp .env.example .env` puis ajuster — le `.env` n'est jamais
+commité.
+
+**Une base de données par service.** `docker/postgres/init/01-databases.sql`
+les crée au premier démarrage (`keycloak`, `ecommerce_cart`, `ecommerce_catalog`
+et `ecommerce_order` aujourd'hui). Ce script ne s'exécute que sur un volume vide : après y avoir ajouté une base,
+`docker compose down -v && docker compose up -d`.
+
+**Les services applicatifs** sont déclarés derrière le profil `services` :
+`docker compose --profile services up -d --build` construit leurs images et
+démarre la pile complète. Pour travailler sur un service, il reste plus
+pratique de lancer les dépendances seules et le service avec `./mvnw`
+(ci-dessus). Voir la section « Images Docker » pour la construction.
+
+**Kafka** expose deux listeners : `kafka:9092` pour les conteneurs,
+`localhost:29092` pour un service lancé depuis l'IDE. Le service `kafka-init`
+crée les topics dès que le broker est prêt, puis s'arrête — voir la section
+« Topics Kafka ».
+
+**Keycloak** tourne en `start-dev` (HTTP en clair, pas de cache distribué),
+persiste dans la base `keycloak` et importe au démarrage le realm décrit dans
+`docker/keycloak/import/` — voir la section suivante.
+
+## Authentification (Keycloak)
+
+Le realm **`ecommerce`** est décrit par
+`docker/keycloak/import/ecommerce-realm.json` et importé au démarrage de la
+stack. Il se recrée entièrement avec
+`docker compose down -v && docker compose up -d`.
+
+> **Attention au piège.** Keycloak n'importe le realm que s'il n'existe pas
+> déjà : un simple `restart` ou `up --force-recreate` après modification du
+> fichier affiche `Realm 'ecommerce' already exists. Import skipped` et garde
+> l'ancienne configuration. Pour voir un changement, il faut repartir d'une
+> base vide avec `down -v`.
+
+### Clients
+
+| Client | Pour | Type | Flux | Redirections |
+|---|---|---|---|---|
+| `web-bo` | back-office (`T06` #11) | public | Authorization Code + **PKCE S256** | `http://localhost:5173/*` |
+| `mobile-app` | app Expo (`T05` #41) | public | Authorization Code + **PKCE S256** | `ecommerce://auth-callback`, `exp://*`, `http://localhost:8081/*` |
+
+Aucun des deux n'autorise le *Direct Access Grant* : aucun mot de passe ne
+transite en dehors du navigateur. Les deux ajoutent l'audience
+`ecommerce-api` dans le jeton d'accès, que la gateway (`T04` #84) pourra
+vérifier.
+
+Le client confidentiel à compte de service, pour l'Admin API de Keycloak,
+viendra avec `U04` (#91) : il porte un secret, il n'a donc rien à faire dans un
+fichier versionné.
+
+### Rôles
+
+| Rôle | Attribution | Donne accès à |
+|---|---|---|
+| `client` | **automatique** à la création du compte | API client : panier, commandes, profil |
+| `collaborator` | manuelle | back-office |
+| `admin` | manuelle, **inclut** `collaborator` | paramètres boutique, collaborateurs, panneau MCP |
+
+`client` est automatique parce qu'il fait partie du composite
+`default-roles-ecommerce`. C'est ce sur quoi `U01` s'appuie pour créer le
+compte applicatif au premier login.
+
+### Comptes de démonstration
+
+| Compte | Mot de passe | Rôles dans le jeton |
+|---|---|---|
+| `client.demo@ecommerce.test` | `demo1234` | `client` |
+| `admin.demo@ecommerce.test` | `demo1234` | `admin`, `collaborator`, `client` |
+
+Ils sont dans `ecommerce-users-0.json`, **séparé du realm exprès** : c'est un
+jeu de données local, et `D04` (#88) ne doit déployer que
+`ecommerce-realm.json`.
+
+### L'issuer, le piège à éviter
+
+`KEYCLOAK_FRONTEND_URL` (par défaut `http://localhost:8180`) fixe le `iss` des
+jetons. Un service qui tourne dans Docker ne peut pas joindre
+`localhost:8180` : il garde donc cette URL comme `issuer-uri` et va chercher
+les clés sur l'URL interne.
+
+```properties
+spring.security.oauth2.resourceserver.jwt.issuer-uri=http://localhost:8180/realms/ecommerce
+spring.security.oauth2.resourceserver.jwt.jwk-set-uri=http://keycloak:8080/realms/ecommerce/protocol/openid-connect/certs
+```
+
+Configurer les deux sur la même URL interne produit des jetons dont le `iss` ne
+correspond à rien de ce que voit le navigateur, et la validation échoue.
+
+### Google et Apple
+
+Les deux fournisseurs sont importés **désactivés et sans identifiants**. Pour
+en essayer un : renseigner le couple dans `.env`, relancer la stack, puis
+activer le fournisseur dans la console d'administration.
+
+- **Google** utilise le fournisseur intégré de Keycloak.
+- **Apple** n'a pas de fournisseur intégré : il est déclaré comme fournisseur
+  OIDC générique pointant sur `appleid.apple.com`. Deux conséquences à prévoir.
+  Son `clientSecret` n'est pas un secret statique mais **un JWT signé avec une
+  clé `.p8`, valable six mois au maximum**, donc à régénérer périodiquement —
+  il faudra une tâche dédiée avant la production. Et Apple ne transmet le nom
+  et l'e-mail qu'au tout premier consentement de l'utilisateur.
+
+Le parcours de première connexion par un fournisseur reste le flux Keycloak par
+défaut, qui **demande une confirmation de liaison** quand l'adresse existe
+déjà. Lier automatiquement sur un e-mail vérifié demande un flux
+d'authentification personnalisé : décision à prendre avec `U06` (#70).
+
+### Réexporter le realm après une modification dans la console
+
+```bash
+mkdir -p /tmp/kc-export && chmod 777 /tmp/kc-export
+docker compose run --rm --no-deps -v /tmp/kc-export:/tmp/export keycloak \
+  export --dir /tmp/export --realm ecommerce --users different_files
+```
+
+Un conteneur jetable, pas `docker compose exec` : dans le conteneur déjà
+démarré, l'export échoue sur le port d'administration déjà pris.
+
+Relire le résultat avant de remplacer le fichier versionné. L'export complet
+fait une quinzaine de fois la taille du fichier écrit à la main, **il contient
+les `clientSecret` des fournisseurs d'identité en clair**, et il remplace les
+mots de passe lisibles des comptes de démo par leurs empreintes.
+
+## Topics Kafka
+
+| Topic | Publié par | Consommé par |
+|---|---|---|
+| `order.paid` | Commande, à la validation du paiement (`O03` #27) | Panier (`P06` #24), Catalogue (`C21` #10), Notifications (`N02` #63) |
+| `catalogue.evenements` | Catalogue : baisse de prix, retour en stock (`C09` #8) | Alertes (`N03` #64) |
+| `sav.reponse-admin` | SAV : réponse d'un collaborateur (`S03` #69) | Notifications (`N02` #63) |
+
+Chaque topic a son **topic de rebut** (DLT), même nom suivi de `.dlt` :
+`order.paid.dlt`, `catalogue.evenements.dlt`, `sav.reponse-admin.dlt`. Le
+script les crée avec les autres ; voir « Événements Kafka » plus bas.
+
+La liste de référence est **`docker/kafka/create-topics.sh`**, rejoué par le
+service `kafka-init` à chaque `docker compose up` : il est idempotent, un
+second passage ne touche à rien. Les manifests Kubernetes du dépôt
+`e-commerce-INFRA` portent la même liste, et les deux doivent rester
+synchronisées.
+
+Pour ajouter un topic : une ligne dans ce script, une ligne dans le manifest
+d'INFRA (son `.dlt` suit automatiquement), et le nom repris dans la propriété que lit le service — tous les
+services lisent leur topic depuis une propriété surchargeable, jamais une
+chaîne en dur.
+
+**Le nom est le contrat** entre un producteur et ses consommateurs : point
+comme séparateur, jamais d'underscore — mélanger les deux expose à des
+collisions de noms de métriques côté broker.
+
+**L'auto-création est désactivée.** Un nom mal orthographié dans un service
+échoue (`Topic ... not present in metadata`) au lieu de créer un topic fantôme
+où personne ne lira jamais rien.
+
+## Modules
+
+| Module | Domaine | Issues | Port | État |
+|---|---|---|---|---|
+| `common-lib` | Librairie partagée (contrat d'erreur HTTP, événements Kafka) | `T01`, `K02` | — | en place |
+| `cart-service` | Panier | `P*` | 8083 | en place |
+| `catalog-service` | Catalogue, stock, avis | `C*` | 8081 | produits, recherche, stock et API admin en place |
+| `user-service` | Utilisateurs, adresses, collaborateurs | `U*` | 8082 | à créer |
+| `order-service` | Commandes, paiement, livraison | `O*` | 8084 | en place |
+| `notification-service` | Notifications, alertes, emails | `N*` | 8085 | à créer |
+| `support-service` | SAV, tickets | `S*` | 8086 | à créer |
+| `mcp-service` | Serveur MCP | `M*` | 8087 | transport HTTP en place (`M01`, [guide](docs/mcp.md)) |
+| `api-gateway` | Routage, validation JWT, CORS | `T04` | 8080 | en place |
+
+Les ports sont réservés ici pour éviter les collisions en local et dans le
+Docker Compose.
+
+## Catalogue : les référentiels
+
+`catalog-service` (`C05` #90) porte les référentiels transverses que les
+produits (`C01` #3) référenceront : **marques**, **catégories** (arborescentes),
+**univers** et **taux de TVA**.
+
+| Chemin | Pour | Contenu |
+|---|---|---|
+| `GET /api/catalog/brands`, `/brands/{slug}` | vitrine | marques, par nom |
+| `GET /api/catalog/categories` | vitrine | **l'arbre** des catégories, en une requête |
+| `GET /api/catalog/categories/{slug}` | vitrine | une catégorie et l'id de son parent |
+| `GET /api/catalog/universes`, `/universes/{slug}` | vitrine | univers, par `position` puis nom |
+| `/api/admin/catalog/{brands,categories,universes,vat-rates}` | back-office | `GET` liste, `GET /{id}`, `POST`, `PUT /{id}`, `DELETE /{id}` |
+
+La vitrine adresse une entrée par son **slug**, le back-office par son **id**.
+À la création, sans slug dans la requête, il est dérivé du nom : `Écrans &
+Moniteurs` donne `ecrans-moniteurs`. **Une mise à jour garde le slug existant**
+sauf si la requête en envoie un : renommer ou déplacer une entrée ne casse pas
+son URL publique. Si aucun slug utilisable ne se dérive du nom (`日本語`,
+`+++`, ou plus de 120 caractères), la création répond **400** et demande un
+slug explicite.
+
+Les tables et colonnes sont **en français** (`marque`, `categorie`, `univers`,
+`tva` ; `nom`, `libelle`, `taux`, `par_defaut`, `date_creation`, `date_maj`),
+comme dans les autres services ; le Java reste en anglais.
+
+Règles, toutes en **409** avec un message lisible :
+
+- un nom de marque ou d'univers, et un slug, sont uniques (le nom sans tenir
+  compte de la casse) ; deux catégories de branches différentes peuvent porter
+  le même nom, pas le même slug ;
+- une catégorie ne se déplace pas sous elle-même ni sous l'une de ses
+  sous-catégories, et ne se supprime pas tant qu'elle en a ;
+- **il y a toujours exactement un taux de TVA par défaut** : en marquer un
+  autre retire la marque du précédent ; le taux par défaut ne peut être ni
+  démarqué ni supprimé. Chaque écriture verrouille la table `tva` : deux
+  requêtes simultanées ne laissent pas deux défauts ;
+- une entrée encore référencée par une autre table (un produit, demain) ne se
+  supprime pas : la contrainte de la base répond 409, pas 500.
+
+**Le schéma est géré par Flyway**, une première dans le dépôt :
+`catalog-service/src/main/resources/db/migration`. Hibernate ne fait que
+vérifier (`ddl-auto: validate`) que les entités correspondent aux tables, et les
+tests passent par les mêmes migrations : un écart entre les deux fait échouer
+le build. Une évolution du schéma est donc **une nouvelle migration** (`V2__…`),
+jamais une modification de `V1`, déjà appliquée. Le SQL doit passer sur
+PostgreSQL et sur H2 en mode PostgreSQL (profil `local-h2` et tests).
+
+`V1` insère les quatre taux français (20 % par défaut, 10 %, 5,5 %, 2,1 %) :
+une donnée de référence, pas un jeu de démonstration.
+
+```bash
+./mvnw -pl catalog-service -am install -DskipTests
+./mvnw -pl catalog-service spring-boot:run -Dspring-boot.run.profiles=local-h2
+curl -s localhost:8081/api/admin/catalog/vat-rates
+curl -s -X POST localhost:8081/api/admin/catalog/categories \
+  -H 'Content-Type: application/json' -d '{"name":"Périphériques"}'
+curl -s localhost:8081/api/catalog/categories
+```
+
+> **Port 8081.** C'est aussi celui du serveur de développement Expo. Si les
+> deux tournent sur la même machine, `CATALOG_PORT` (voir `.env.example`)
+> publie le catalogue ailleurs dans le Docker Compose ; en dehors de Docker,
+> `-Dspring-boot.run.arguments=--server.port=8091`.
+
+## Catalogue : produits et variantes
+
+`C01` (#3) ajoute le modèle des produits par la migration `V2`. Le **produit**
+est la fiche générique (« Logitech MX Keys S ») ; la **variante** est l'unité
+réellement vendue (« MX Keys S, AZERTY, blanc »), avec son SKU, ses prix, son
+poids et son stock. **Le panier et les commandes pointent toujours une
+variante**, jamais un produit.
+
+| Table | Contenu |
+|---|---|
+| `produit` | titre, slug, description HTML, statut (`BROUILLON`, `PUBLIE`, `ARCHIVE`), marque, catégorie, TVA |
+| `variante` | SKU unique, prix d'achat, de vente et remisé **HT**, écotaxe, poids (kg), stock, seuil d'alerte |
+| `attribut`, `valeur_attribut` | ce qui fait varier un produit (Couleur, Layout clavier…) et ses valeurs (Noir, AZERTY…) |
+| `variante_valeur` | les valeurs d'une variante |
+| `variante_image` | les photos d'une variante, `position` 1 = miniature principale |
+| `produit_specification` | caractéristiques communes aux variantes (Garantie, Connectique…) |
+| `produit_univers` | les univers d'un produit |
+
+La base porte les règles qui ne doivent jamais être contournées : **le stock ne
+passe pas sous zéro** (pas de survente, même avec deux commandes simultanées),
+un prix remisé est inférieur au prix de vente, un SKU est unique. Supprimer un
+produit supprime ses variantes, spécifications et images ; une marque, une
+catégorie ou un univers encore utilisé par un produit ne se supprime pas (409).
+`V2` ajoute aussi `actif` sur `tva` : un taux inactif n'est plus proposé pour un
+nouveau produit, mais reste valable pour ceux qui l'utilisent.
+
+**Jeu de démonstration.** Avec le profil `demo`, un catalogue vide se remplit
+au démarrage depuis `catalog-service/src/main/resources/demo/catalogue-demo.json` :
+19 produits et 30 variantes (claviers, souris, casques, écrans, portables,
+composants), avec des promotions, des stocks bas, une rupture, un brouillon et
+un produit archivé. Le chargement ne fait rien si le catalogue a déjà un
+produit : un redémarrage ne crée pas de doublon. Le Docker Compose active ce
+profil ; la production, jamais.
+
+```bash
+./mvnw -pl catalog-service spring-boot:run -Dspring-boot.run.profiles=local-h2,demo
+```
+
+Les tests rejouent aussi les migrations et le jeu de démonstration sur un vrai
+**PostgreSQL 16** (Testcontainers, `PostgresSchemaTest`) : H2 accepte des types
+de colonnes que Hibernate refuse sur PostgreSQL. Sans Docker, ce test est
+ignoré en local, mais il échoue en CI (`CI=true`).
+
+### API interne des variantes
+
+`C10` (#9) : ce que Panier, Commande et le MCP lisent d'une variante. **La
+gateway ne route pas `/api/internal/**`** : seuls les services se l'appellent,
+dans le réseau Docker Compose ou le cluster. C'est pour cela que le prix
+d'achat peut y figurer, et jamais dans l'API publique.
+
+| Chemin | Réponse |
+|---|---|
+| `GET /api/internal/catalog/variants/{id}` | une variante, ou 404 |
+| `GET /api/internal/catalog/variants?ids=1,2,3` | plusieurs variantes en un appel (100 au plus), dans l'ordre demandé ; un id inconnu est ignoré, une liste vide ou trop longue répond 400 |
+
+```json
+{
+  "id": 4, "productId": 2, "productSlug": "logitech-g915-tkl", "sku": "LOGI-G915TKL-AZ-NOI",
+  "designation": "Logitech G915 TKL - Noir, AZERTY",
+  "unitPriceExclTax": 166.76, "salePriceExclTax": 191.66, "discountPriceExclTax": 166.66, "ecoTax": 0.10,
+  "vatRate": 20.00, "purchasePriceExclTax": 130.00, "weightKg": 0.810, "stock": 8,
+  "status": "PUBLIE", "available": true, "imageUrl": null
+}
+```
+
+- **`id`, `designation`, `unitPriceExclTax` et `vatRate` sont lus par
+  `order-service` sous ces noms exacts**, et figés dans la ligne de commande :
+  ne pas les renommer.
+- `unitPriceExclTax` est ce que le client paie avant TVA : le prix remisé s'il
+  y en a un, sinon le prix de vente, **plus l'écotaxe**, qui fait partie du
+  prix. Le détail reste dans les autres champs.
+- `available` est vrai seulement si le produit est publié et la variante en
+  stock. Les brouillons et les produits archivés restent lisibles, avec leur
+  statut, pour qu'un ancien panier ou une ancienne commande s'affiche encore.
+  C'est au service appelant de refuser une variante non disponible.
+- `purchasePriceExclTax` sert à figer le prix d'achat dans la commande, pour les
+  marges.
+
+### API publique des produits
+
+`C02` (#4) : ce que la vitrine affiche. Public via la gateway, comme tout
+`GET /api/catalog/**` : parcourir le catalogue ne demande pas de compte.
+
+| Chemin | Réponse |
+|---|---|
+| `GET /api/catalog/products` | une page de cartes produits |
+| `GET /api/catalog/products/{slug}` | la fiche d'un produit, ou 404 |
+
+Paramètres de la liste, tous facultatifs :
+
+| Paramètre | Effet |
+|---|---|
+| `category` | slug d'une catégorie, **sous-catégories comprises** (`peripheriques` donne claviers, souris et casques) |
+| `brand`, `universe` | slug d'une marque, d'un univers |
+| `sort` | `newest` (par défaut), `price-asc`, `price-desc`, `name` |
+| `page`, `size` | page à partir de 0, 20 produits par défaut, 50 au plus |
+
+Un slug inconnu donne une page vide ; une page, une taille ou un tri invalide
+répond 400. La recherche textuelle et les filtres de prix et d'attributs sont
+décrits dans la section [Recherche](#recherche) ci-dessous.
+
+```json
+{
+  "content": [{
+    "id": 2, "slug": "logitech-g915-tkl", "title": "Logitech G915 TKL",
+    "brand": { "name": "Logitech", "slug": "logitech" },
+    "category": { "name": "Claviers", "slug": "claviers" },
+    "priceInclTax": 200.11, "regularPriceInclTax": 230.11,
+    "imageUrl": null, "available": true, "variantCount": 2
+  }],
+  "page": 0, "size": 20, "totalElements": 17, "totalPages": 1
+}
+```
+
+La fiche ajoute la description HTML, les univers, la TVA, les spécifications,
+les **attributs** pour choisir une variante (`{"name": "Couleur", "values":
+["Noir", "Blanc"]}`) et chaque **variante** : ses valeurs, son prix, son prix
+barré, sa part d'écotaxe, `available`, `lowStock` et ses photos.
+
+- **Seuls les produits publiés** apparaissent : un brouillon ou un produit
+  archivé répond 404, comme un slug inconnu.
+- **Les prix sont TTC, pour un article**, écotaxe comprise : c'est exactement
+  ce que le checkout facture pour un article. Une carte montre le prix de la
+  variante la moins chère ; `regularPriceInclTax` est le prix barré quand
+  elle est en promotion.
+- **Les totaux ne se calculent pas côté front.** Pour plusieurs articles,
+  `order-service` arrondit la TVA sur le sous-total de la ligne (prix HT ×
+  quantité), ce qui peut différer d'un centime du prix TTC unitaire ×
+  quantité : 3 articles à 10,03 € HT coûtent 36,11 € TTC, pas 3 × 12,04 €.
+  Un total affiché vient du panier ou du checkout.
+- **Ni le stock exact ni le prix d'achat** ne sont exposés : `available` dit
+  si la variante est en stock, `lowStock` si elle est au seuil d'alerte ou en
+  dessous (« plus que quelques exemplaires »).
+- La liste se calcule en deux temps : les ids de la page, filtrés et triés
+  en base (le tri par prix compare la variante la moins chère de chaque
+  produit), puis ces produits. Une page de 17 produits coûte 7 requêtes.
+
+### Recherche
+
+`C03` (#42) complète la liste C02 avec des filtres combinables, des facettes
+et des suggestions. Les endpoints restent publics ; seules les fiches publiées
+possédant au moins une variante sont visibles, même si leur stock est nul.
+Les formats `PageResponse<ProductCardResponse>` et `ProductCardResponse` de C02
+restent inchangés.
+
+| Chemin | Réponse |
+|---|---|
+| `GET /api/catalog/products` | page de cartes filtrées |
+| `GET /api/catalog/products/facets` | catégories, marques, univers, bornes de prix, attributs et spécifications disponibles |
+| `GET /api/catalog/products/autocomplete?q=logitec&limit=5` | tableau de cartes, classées par pertinence sur PostgreSQL |
+
+Les nouveaux paramètres de la liste et des facettes sont facultatifs :
+
+| Paramètre | Effet |
+|---|---|
+| `q` | sous-chaîne du titre, du nom de la catégorie directe ou du nom de la marque ; casse et accents français/latins usuels ignorés ; 150 caractères au plus |
+| `minPrice`, `maxPrice` | bornes inclusives du prix minimum TTC du produit, remise et écotaxe comprises ; valeurs positives ou nulles, minimum ≤ maximum |
+| `attribute` | répétable, `nom:valeur`, par exemple `Couleur:Noir` |
+| `specification` | répétable, `clé:valeur`, par exemple `Garantie:2 ans` |
+
+Ils se combinent avec `category` (descendants compris), `brand` et `universe`.
+La liste conserve `sort`, `page` et `size` décrits dans C02 ; les facettes ne sont
+pas paginées. Une recherche vide n'ajoute pas de filtre. `%` et `_` sont des
+caractères littéraux. La normalisation des accents utilise `translate` et
+`replace` en SQL, identiques sur H2 et PostgreSQL, sans extension `unaccent`.
+Elle couvre notamment `é/è/ê/ë`, `à/â`, `ç`, `œ` et `æ` ; ce n'est pas une
+translittération de tous les alphabets Unicode.
+
+Pour les attributs et spécifications : égalité exacte sensible à la casse,
+**OU entre valeurs d'une même clé**, **ET entre clés différentes**. Les attributs
+sélectionnés doivent coexister sur **une même variante**. Le prix filtré reste
+le prix minimum du produit entier, comme celui de sa carte, même si un attribut
+est sélectionné. Au maximum 20 occurrences de chaque paramètre ; noms/valeurs
+non vides, longueurs maximales 50/50 pour les attributs et 100/500 pour les
+spécifications. Le premier `:` sépare le nom de la valeur ; virgules et `:`
+suivants font partie de la valeur. Encoder normalement les paramètres dans l'URL.
+
+**Chaque groupe de facettes ignore sa propre sélection**, et conserve `q` et
+tous les autres critères : les marques ignorent `brand`, les catégories ignorent
+`category`, les univers ignorent `universe`, le prix ignore ses deux bornes.
+Chaque clé technique est un groupe distinct : `Couleur` ignore seulement les
+couleurs sélectionnées, pas `Layout clavier` ni les spécifications.
+Les valeurs d'attribut proposées doivent coexister sur une variante avec les
+autres attributs sélectionnés.
+
+Les compteurs sont des **produits distincts**, avant pagination. Ainsi, avec le
+catalogue de démonstration, sélectionner `Couleur:Noir` laisse le compteur de
+`Couleur:Blanc` à 4. Ce compteur décrit les produits correspondant à **Blanc**
+avec les autres critères ; ce n'est pas le total de l'union Noir OU Blanc.
+Ne pas additionner les compteurs : un produit peut avoir plusieurs couleurs.
+Une sélection sans résultat peut encore proposer des alternatives dans son
+propre groupe. Un groupe sans correspondance retourne un tableau vide ; une
+fourchette sans correspondance retourne `{"min":null,"max":null}`.
+
+Exemple avec le profil `demo` :
+
+```bash
+curl -G localhost:8081/api/catalog/products \
+  --data-urlencode 'q=g915' \
+  --data-urlencode 'category=peripheriques' \
+  --data-urlencode 'brand=logitech' \
+  --data-urlencode 'minPrice=200.11' --data-urlencode 'maxPrice=200.11' \
+  --data-urlencode 'attribute=Couleur:Noir' \
+  --data-urlencode 'specification=Garantie:2 ans'
+```
+
+La réponse est une page C02 contenant le G915 TKL à **200,11 €**, avec
+`totalElements: 1`. Pour construire les filtres, envoyer les mêmes critères à
+`/api/catalog/products/facets`. Exemple complet pour `?q=g915` :
+
+```json
+{
+  "categories": [{"slug":"claviers","name":"Claviers","count":1}],
+  "brands": [{"slug":"logitech","name":"Logitech","count":1}],
+  "universes": [{"slug":"gaming","name":"Gaming","count":1}],
+  "price": {"min":200.11,"max":200.11},
+  "attributes": [
+    {"name":"Couleur","value":"Blanc","count":1},
+    {"name":"Couleur","value":"Noir","count":1},
+    {"name":"Layout clavier","value":"AZERTY","count":1}
+  ],
+  "specifications": [
+    {"name":"Connectique","value":"Lightspeed, Bluetooth, USB","count":1},
+    {"name":"Garantie","value":"2 ans","count":1},
+    {"name":"Switches","value":"GL Tactile","count":1}
+  ]
+}
+```
+
+**Autocomplétion** : `q` porte sur le titre des produits. Sur PostgreSQL,
+`pg_trgm` tolère les fautes (`logitec`, `macbok`) grâce à la similarité de mot
+(seuil PostgreSQL par défaut : 0,6), complétée par une recherche littérale.
+Les suggestions sont triées par `word_similarity`, puis `similarity`, puis titre
+et ID pour stabiliser les égalités. `limit` vaut 8 par défaut, entre 1 et 20.
+La réponse est un tableau de cartes C02 ; recherche vide ou sans résultat : `[]`.
+Avec `local-h2`, le repli est une recherche littérale `LIKE`, sans tolérance aux
+fautes ; les titres exacts viennent d'abord, puis le titre et l'ID.
+
+Les paramètres invalides répondent **400** via le contrat d'erreur commun :
+prix négatif, minimum supérieur au maximum, recherche trop longue, filtre
+technique mal formé, limite ou pagination invalide.
+
+Les filtres, comptes, tris et pagination sont exécutés en SQL paramétré ; les
+clauses `EXISTS` et les comptes distincts évitent les doublons. La migration V3
+préserve V1/V2, ajoute l'index des spécifications sur les deux bases et active
+`pg_trgm` avec un index GIN des titres uniquement sur PostgreSQL. Le rôle Flyway
+doit pouvoir installer cette extension. Aucune fonction trigramme n'est simulée
+sur H2.
+
+Vérification avec **Java 21** et Docker actif :
+
+```bash
+./mvnw -pl catalog-service -am clean verify
+```
+
+Les tests de recherche/facettes sont rejoués sur H2 et PostgreSQL 16 via
+Testcontainers : filtres combinés, compteurs sans leur propre sélection,
+compatibilité des attributs sur une variante, prix TTC, pagination, exclusions,
+accents et paramètres invalides. Les tests PostgreSQL vérifient aussi les
+trigrammes et leur index. Sans Docker, ils sont ignorés localement et échouent
+en CI ; les tests C02 et le repli H2 restent exécutés.
+
+### API admin des produits
+
+`C04` (#5) : ce que le back-office utilise pour gérer le catalogue (écrans
+`C15` liste, `C16` formulaire, `C17` variantes et attributs). Tout est sous
+`/api/admin/catalog`, réservé aux rôles `collaborator` et `admin` par la
+gateway. Contrairement à la vitrine, ces routes voient **tous les statuts**,
+le prix d'achat et le stock exact.
+
+| Chemin | Effet |
+|---|---|
+| `GET /products` | une page de lignes : statut, marque, catégorie, nombre de variantes, prix le plus bas HT, stock total, `lowStock` si une variante est en alerte. Filtres `search` (titre, slug ou SKU d'une variante), `status`, `brandId`, `categoryId` (sous-catégories comprises) ; `sort` = `updated` (défaut, dernière modification d'abord), `newest` ou `title` ; `page`, `size` (100 au plus) |
+| `GET /products/{id}` | la fiche complète : identifiants et noms de la marque, de la catégorie, de la TVA et des univers, specs, et chaque variante avec prix HT, prix d'achat, stock, seuil, valeurs d'attributs et images |
+| `POST /products` | création, **toujours en brouillon** ; sans `slug`, il vient du titre ; sans `vatRateId`, c'est le taux par défaut |
+| `PUT /products/{id}` | remplace la fiche : titre, slug, description HTML, marque, catégorie, TVA, univers, et la **liste entière** des specs, dans l'ordre d'affichage |
+| `PUT /products/{id}/status` | `{"status": "PUBLIE"}`, `"ARCHIVE"` |
+| `DELETE /products/{id}` | un brouillon seulement |
+| `GET /specification-keys?categoryId=` | les clés de specs déjà utilisées dans une catégorie, les plus fréquentes d'abord : des suggestions pour le formulaire, sans table de plus |
+| `POST /products/{id}/variants` | SKU, prix d'achat, prix de vente et remise HT, écotaxe, poids, `valueIds`, et à la création seulement `initialStock` et `alertThreshold` |
+| `PUT /variants/{id}` | les mêmes champs, sans le stock ni le seuil |
+| `DELETE /variants/{id}` | une variante d'un brouillon seulement |
+| `GET /attributes`, `GET /attributes/{id}` | les attributs et leurs valeurs, dans l'ordre d'affichage |
+| `POST /attributes`, `PUT /attributes/{id}` | `{"name": "Couleur", "values": [{"id": 3, "value": "Noir"}, {"value": "Rouge"}]}` : la liste remplace l'ancienne, une valeur avec son `id` est gardée (et renommée si besoin), une valeur sans `id` est créée |
+| `DELETE /attributes/{id}` | un attribut qu'aucune variante n'utilise |
+
+Les règles :
+
+- **Le cycle de vie.** Un produit naît brouillon, se publie s'il a au moins
+  une variante (sinon la vitrine montrerait un produit sans prix ni bouton
+  d'achat), puis passe de publié à archivé et inversement. Il ne revient
+  **jamais en brouillon** : un brouillon, c'est un produit qu'aucun client
+  n'a vu.
+- **On supprime seulement ce qui n'a jamais été vendu.** Un produit publié a
+  pu être commandé ou cité dans un ticket SAV : on l'archive. Pour arrêter de
+  vendre une seule variante, on met son stock à 0 ; le panier l'affiche déjà
+  « indisponible ».
+- **Le stock ne passe pas par le formulaire.** Un formulaire ouvert depuis
+  cinq minutes renverrait un vieux stock et effacerait les ventes faites
+  entre-temps : après la création, le stock bouge seulement par les
+  ajustements (`C07`) et les commandes payées (`C21`). Un `PUT` qui envoie
+  `initialStock` ou `alertThreshold` répond 400 avec le bon chemin.
+- **Deux variantes d'un produit se distinguent toujours.** Une valeur par
+  attribut au plus (pas de « Noir + Blanc »), et pas deux variantes avec les
+  mêmes valeurs : sur la fiche, le client choisit des valeurs, et le site doit
+  trouver une seule variante. La génération des combinaisons (`C17`) se fait
+  dans l'écran, qui appelle `POST` pour chacune.
+- **Rien ne disparaît sous une variante.** Une valeur d'attribut utilisée par
+  une variante ne se retire pas, ni son attribut (409).
+- **Une TVA inactive** n'est plus proposée pour un nouveau produit, mais un
+  produit qui l'a déjà la garde.
+- **Les erreurs** suivent le contrat commun : 400 pour un formulaire mal
+  rempli (remise supérieure ou égale au prix, marque inconnue, spec en double,
+  plus de deux décimales), 404 pour un produit ou une variante inconnus, 409
+  pour un conflit avec l'existant (SKU ou slug pris, publication sans variante,
+  suppression refusée).
+- **Les écritures concurrentes.** Chaque écriture sur un produit (fiche,
+  statut, variantes) verrouille d'abord la ligne du produit : deux ajouts
+  identiques simultanés ne passent pas tous les deux (vérifié sur PostgreSQL
+  avec 8 ajouts en même temps), et un produit ne se publie pas pendant qu'on
+  supprime sa dernière variante.
+- **Un enregistrement n'écrit que ce qui a changé** (`@DynamicUpdate` sur
+  `Product` et `Variant`). Le stock bouge par des `UPDATE` directs (`C07`,
+  `C21`) qui ne passent pas par l'entité : sans cela, enregistrer le prix
+  d'une variante réécrirait le stock lu avant une vente faite au même moment,
+  et effacerait cette vente. De même, enregistrer la fiche ne remet pas un
+  statut changé entre-temps. Les deux cas sont rejoués par des tests.
+- **Limite connue :** si deux personnes modifient la même fiche en même temps,
+  la dernière enregistrée gagne. Un numéro de version (`@Version`, 409 si la
+  fiche a changé depuis son ouverture) serait l'alternative, si le besoin
+  apparaît.
+- **La description HTML** est enregistrée telle que l'éditeur l'envoie. Les
+  comptes du back-office sont internes ; si un jour la vitrine l'affiche dans
+  une vue web, elle devra la nettoyer à l'affichage.
+
+Les événements « baisse de prix » et « retour en stock » (`C09`) se brancheront
+sur `PUT /variants/{id}` et sur les ajustements de stock ; les images (`C06`)
+auront leurs propres routes.
+
+Les tests `AdminProductApiTest` et `AttributeApiTest` tournent sur H2, puis
+sont rejoués tels quels sur PostgreSQL 16 (`PostgresAdminProductApiTest`,
+`PostgresAttributeApiTest`, Testcontainers).
+
+### Images
+
+`C06` (#6) : les photos des variantes, pour l'écran de glisser-déposer du
+back-office (`C18` #15). Une variante a ses propres photos (le noir et le
+blanc ne se ressemblent pas) ; la position 1 est la miniature principale.
+
+| Chemin | Effet |
+|---|---|
+| `POST /api/admin/catalog/variants/{id}/images` | un formulaire multipart avec un champ `file` ; la photo se place en dernier. Répond la variante et ses photos (201) |
+| `DELETE /api/admin/catalog/variants/{id}/images/{imageId}` | retire la photo ; les suivantes remontent, les positions restent 1, 2, 3… |
+| `PUT /api/admin/catalog/variants/{id}/images/order` | `{"imageIds": [7, 3, 5]}` : chaque photo une fois, la première devient la miniature |
+| `GET /api/catalog/images/{fichier}` | **public**, comme tout `GET /api/catalog/**` : sert la photo, avec un cache d'un an (`immutable`), puisqu'un fichier ne change jamais |
+
+- **Où.** Des fichiers dans un dossier (`catalog.images.directory`,
+  `CATALOG_IMAGES_DIR`, `/data/images` par défaut) : le volume
+  `catalog-images` en Docker Compose, **un PVC en Kubernetes**, monté sur
+  `/data/images` du Deployment `catalog-service`. Le `Dockerfile` crée ce
+  dossier pour l'utilisateur `spring`, sans quoi un volume monté dessus ne
+  serait pas accessible en écriture.
+- **L'adresse enregistrée** dans `variante_image.url` est l'adresse publique
+  (`CATALOG_IMAGES_PUBLIC_URL`, `http://localhost:8080/api/catalog/images` par
+  défaut) suivie du nom du fichier : la vitrine, le mobile, le panier et le
+  back-office l'utilisent telle quelle. À régler par environnement.
+- **Le format** se lit sur les premiers octets du fichier (JPEG, PNG, WebP),
+  jamais sur son nom ni sur le type annoncé par le navigateur. **5 Mo** par
+  photo (413 au-delà) et **10 photos** par variante (409). Pour que le 413
+  arrive vraiment, `server.tomcat.max-swallow-size` est à 20 Mo : par défaut,
+  Tomcat ne lit que 2 Mo d'un envoi refusé et laisse le client bloqué sans
+  réponse (constaté avec un fichier de 6 Mo).
+- **Le nom du fichier** est tiré au hasard (UUID) par le service, jamais repris
+  de l'envoi : un nom piégé (`../../etc/passwd`) ne peut ni écrire ni lire hors
+  du dossier.
+- **Les fichiers suivent la base.** Supprimer une photo, une variante ou un
+  brouillon supprime les fichiers **après** l'enregistrement en base : si la
+  suppression échoue, la photo est toujours là. Un envoi dont la transaction
+  échoue ne laisse pas de fichier derrière lui. Comme les autres écritures sur
+  un produit, chaque envoi verrouille d'abord le produit : deux envois
+  simultanés ne prennent pas tous les deux la dixième place.
+- **Pas de redimensionnement** : le service garde la photo telle qu'elle est
+  envoyée, et les écrans l'affichent à la taille voulue. Générer des
+  miniatures demanderait une bibliothèque d'images ; c'est l'évolution
+  naturelle si les photos deviennent lourdes.
+
+### Stock
+
+`C07` (#7) : l'inventaire du back-office (écran `C20` #16), les corrections
+manuelles, les seuils d'alerte, et la baisse de stock d'une commande. Réservé
+aux rôles `collaborator` et `admin` par la gateway, comme tout `/api/admin/**`.
+
+| Chemin | Effet |
+|---|---|
+| `GET /api/admin/catalog/inventory` | les variantes, tous statuts de produit confondus, avec leur **stock exact**, leur seuil et `lowStock` ; `?lowStock=true` pour les seules alertes, `?search=` sur le titre ou le SKU, `page` et `size` (100 au plus) |
+| `POST /api/admin/catalog/variants/{id}/stock-adjustments` | `{"delta": 10}` pour une livraison, `{"delta": -1}` pour un article cassé ; renvoie la ligne à jour |
+| `PUT /api/admin/catalog/variants/{id}/alert-threshold` | `{"alertThreshold": 5}` |
+
+- **Le stock ne passe jamais sous zéro.** Chaque changement est une seule
+  requête conditionnelle (`stock = stock + delta` seulement si le résultat
+  reste positif ou nul) : un ajustement trop grand répond 409 sans rien
+  changer, et deux commandes simultanées ne prennent pas le même dernier
+  article. La contrainte `ck_variante_stock` de `V2` le garantit aussi en base.
+- **`StockService.decrement`** retire des quantités **tout ou rien** : si une
+  variante manque de stock, aucune ne bouge. Les variantes sont traitées dans
+  l'ordre de leur id, pour que deux opérations qui partagent des variantes ne
+  se bloquent pas mutuellement.
+- Vérifié sur PostgreSQL 16 : 20 achats simultanés d'une variante à 7 en
+  stock donnent exactement 7 ventes, et un stock final à 0.
+- **Pas d'historique des mouvements** pour l'instant : seul le stock actuel est
+  gardé. Une table de mouvements pourra s'ajouter par une migration si le
+  besoin apparaît.
+- La vitrine n'affiche toujours que `available` et `lowStock`, jamais le
+  stock exact.
+
+### Commandes payées
+
+`C21` (#10) : quand une commande est payée, le catalogue retire ses quantités
+du stock. `OrderPaidEvent` porte pour cela **`items`**, une entrée
+`{variantId, quantity}` par ligne de commande, remplie par `order-service` au
+moment de publier. Le champ est toujours présent : vide pour un message
+publié avant `C21`, et ignoré par les consommateurs qui n'en ont pas besoin.
+
+`OrderPaidStockListener` (groupe `catalog-service`) traite chaque commande :
+
+- **Une seule fois.** Kafka livre au moins une fois, et Stripe peut rappeler
+  le webhook : l'id de la commande est enregistré dans `commande_traitee`
+  (migration `V4`) dans la même transaction que le changement de stock. Une
+  deuxième livraison le trouve et ne change rien.
+- **Sans jamais refuser.** Le client a déjà payé : si le stock ne couvre plus
+  une ligne (deux clients ont payé le dernier article à quelques secondes
+  d'écart), le catalogue prend ce qui reste, le stock s'arrête à 0, et un
+  **WARN** nomme la commande, la variante et les unités manquantes, pour que
+  quelqu'un contacte le client. Une variante supprimée depuis est signalée de
+  la même façon ; les autres lignes sont servies.
+- **Sans survente ni interblocage.** Chaque ligne verrouille sa variante avant
+  de la lire, dans l'ordre des ids (`StockService.takePaidOrder`). Vérifié sur
+  PostgreSQL 16 : 10 commandes payées en même temps pour 2 unités en prennent
+  2 et signalent 8 manques, stock final à 0.
+- En cas d'erreur, la transaction annule tout, puis la politique commune
+  réessaie et envoie le message dans `order.paid.dlt`.
+
+Le catalogue a donc besoin de Kafka : `SPRING_KAFKA_BOOTSTRAP_SERVERS` dans le
+Docker Compose, comme le panier. Les tests H2 coupent le consommateur
+(`spring.kafka.listener.auto-startup: false`) ; `OrderPaidStockKafkaIntegrationTest`
+le rejoue sur un vrai broker.
+
+### Baisses de prix et retours en stock
+
+`C09` (#8) : le catalogue publie sur `catalogue.evenements` deux événements de
+`common-lib`, que `notification-service` transforme en alertes pour les
+clients qui suivent la variante (`N03`) :
+
+| Événement | Quand | Contenu |
+|---|---|---|
+| `PriceDroppedEvent` | Une variante modifiée (`PUT /variants/{id}`) coûte moins cher au client | prix unitaire HT avant et après |
+| `BackInStockEvent` | Un ajustement d'inventaire fait passer le stock de **0** à plus de 0 | unités disponibles |
+
+- **Le prix comparé** est celui que le client paie avant TVA : la remise s'il
+  y en a une, sinon le prix de vente, plus l'écotaxe (`Variant.unitPriceExclTax`,
+  le même que l'API interne). Une hausse, ou un prix barré qui change sous une
+  remise inchangée, n'envoie rien.
+- **Le retour en stock** ne vient que de l'inventaire : une variante créée avec
+  du stock n'a jamais été en rupture, et une commande payée ne fait que
+  baisser le stock. Le stock relu après l'ajustement est exactement l'ancien
+  plus l'écart (la ligne reste verrouillée jusqu'à la fin de la transaction),
+  donc « 0 avant » est sûr même avec des commandes en parallèle.
+- **Seulement pour un produit publié** : personne ne peut suivre un brouillon
+  ni un produit archivé.
+- **Après l'enregistrement, jamais avant** : l'envoi part dans `afterCommit`.
+  Une modification annulée n'annonce rien. Le prix d'avant est relu sous le
+  verrou du produit : deux modifications simultanées ne font pas annoncer une
+  baisse pour une hausse.
+- **Clé = id de la variante** : les événements d'une variante arrivent dans
+  l'ordre où ils sont partis.
+- **Sans bloquer le back-office** : si le broker est injoignable, l'envoi
+  abandonne au bout de 5 s (`max.block.ms`), la modification reste
+  enregistrée, l'événement est perdu et un **WARN** le dit. Une alerte ratée
+  est moins grave qu'un prix ou un stock impossible à changer.
+  L'alternative robuste, notée ici pour plus tard : une table « outbox »
+  écrite dans la même transaction et relue par un relais qui publie et
+  réessaie. Plus de code et une table de plus pour un cas rare, d'où la
+  version simple (règle n°1).
+
+Les tests H2 n'envoient rien (`catalog.events.enabled: false`, pas de
+broker) ; `CatalogEventsTest` les réactive avec un `KafkaTemplate` simulé, et
+`CatalogEventsKafkaIntegrationTest` vérifie les messages sur un vrai broker.
+
+## Collaborateurs (Keycloak)
+
+`user-service` (`U04` #91) gère les comptes du back-office **dans Keycloak et
+nulle part ailleurs** : Keycloak reste la seule source de vérité sur qui se
+connecte et avec quel rôle. Le service n'a donc pas de table de
+collaborateurs ; il appelle l'Admin API avec le compte de service du client
+`user-service`, dont le jeton est mis en cache jusqu'à 30 s avant son
+expiration.
+
+| Méthode et chemin | Effet |
+|---|---|
+| `GET /api/admin/users/collaborators` | les collaborateurs et admins, par e-mail |
+| `GET /api/admin/users/collaborators/{id}` | un collaborateur, par son id Keycloak (le `sub` de ses jetons) |
+| `POST /api/admin/users/collaborators` | crée le compte : `email`, `firstName`, `lastName`, `role`, `temporaryPassword` |
+| `PUT /api/admin/users/collaborators/{id}/role` | `{"role":"admin"}` ou `{"role":"collaborator"}` |
+| `POST /api/admin/users/collaborators/{id}/disable` | désactive le compte et **ferme ses sessions** |
+| `POST /api/admin/users/collaborators/{id}/enable` | le réactive |
+
+La gateway réserve tout ce sous-arbre au rôle **`admin`**, plus strict que le
+`collaborator` du reste de `/api/admin/**`. Le service valide aussi le jeton
+lui-même (la sécurité de `U01`) : appelé directement, sans jeton, il répond 401.
+
+Règles :
+
+- **un collaborateur est un compte qui porte `collaborator` ou `admin`
+  directement** (pas par un groupe). Les comptes clients sont invisibles ici :
+  l'API répond 404, elle ne peut ni les lire, ni les promouvoir, ni les
+  désactiver ;
+- à la création, l'e-mail sert d'identifiant (en minuscules) et est considéré
+  vérifié ; le mot de passe est **temporaire** : Keycloak en demande un nouveau
+  à la première connexion. La politique du realm s'applique (8 caractères,
+  différent de l'e-mail) : un refus répond **400** avec le message de
+  Keycloak ; un e-mail déjà pris, **409** ;
+- si le rôle ne peut pas être attribué après la création, le compte est
+  supprimé : il ne reste pas de compte sans rôle ;
+- un changement de rôle ajoute le nouveau **avant** de retirer l'ancien : le
+  compte ne perd jamais l'accès en cours de route ;
+- **personne ne change son propre rôle ni ne désactive son propre compte**
+  (409, d'après `X-Auth-Subject`) : un admin ne peut pas laisser la boutique
+  sans administrateur par erreur ;
+- Keycloak injoignable ou en erreur : **502**, pas 500 — le back-office peut
+  proposer de réessayer.
+
+**Le compte de service** a, sur le client `realm-management`, les rôles
+`query-users`, `view-users`, `manage-users` et `view-realm` : de quoi gérer
+des comptes et leurs rôles de realm, rien sur la configuration du realm.
+
+**Le secret** vient de `USER_SERVICE_CLIENT_SECRET`, lu par Keycloak à
+l'import du realm et transmis au service par le compose : `set-me` par défaut
+en local, toujours un Secret sur le cluster (voir
+[`docs/deploiement.md`](docs/deploiement.md), `user-service`).
+
+> **Sur une base Keycloak existante**, l'import ne rejoue pas : le client
+> n'apparaît qu'après `docker compose down -v && docker compose up -d`. Sinon,
+> le créer depuis la console : *Clients* → *Create client* `user-service`,
+> *Client authentication* et *Service accounts roles* cochés, tout le reste
+> décoché ; reporter son secret dans `.env` ; onglet *Service accounts roles*
+> → les quatre rôles de `realm-management` ci-dessus.
+
+```bash
+docker compose up -d                             # Keycloak doit tourner
+./mvnw -pl user-service -am install -DskipTests
+./mvnw -pl user-service spring-boot:run
+curl -s localhost:8082/api/admin/users/collaborators \
+  -H "Authorization: Bearer $ADMIN_TOKEN"        # jeton de admin.demo@ecommerce.test
+```
+
+## MCP : les jetons d'accès
+
+Un client MCP (Claude Desktop, MCP Inspector) n'a pas de compte Keycloak : il
+s'authentifie avec un **jeton MCP** émis depuis le back-office (`M03` #92),
+envoyé dans `Authorization: Bearer mcp_…`. `mcp-service` porte ces jetons et
+le filtre qui les vérifie ; le serveur MCP lui-même (Spring AI, `M01` #50) et
+ses tools (`M02` #51) viendront s'y brancher.
+
+| Méthode et chemin | Effet |
+|---|---|
+| `GET /api/admin/mcp/tokens` | les jetons, du plus récent au plus ancien, avec leur statut et leur dernière utilisation |
+| `GET /api/admin/mcp/tokens/{id}` | un jeton |
+| `POST /api/admin/mcp/tokens` | `{"name":"Claude Desktop - Marius","scopes":["catalog:read"],"expiresAt":"2027-01-01T00:00:00Z"}` → 201, **avec le jeton** |
+| `POST /api/admin/mcp/tokens/{id}/revoke` | révoque, immédiatement et définitivement |
+
+Réservé au rôle **`admin`** par la gateway.
+
+**Le jeton n'est affiché qu'une fois**, dans la réponse à la création : la base
+ne garde que son **empreinte SHA-256** et ses 12 premiers caractères
+(`prefix`), pour que le back-office le reconnaisse. Perdu, il ne se relit pas :
+on le révoque et on en crée un autre. Il fait `mcp_` + 256 bits aléatoires :
+impossible à deviner, d'où une empreinte rapide plutôt que bcrypt, qui coûterait
+quelques centaines de millisecondes à chaque requête MCP sans rien protéger de
+plus.
+
+| Portée | Ouvre |
+|---|---|
+| `catalog:read` | les tools du catalogue |
+| `orders:read` | les tools des commandes |
+| `users:read` | les tools des utilisateurs |
+
+Toutes en lecture : aucun tool MCP n'écrit. Un tool vérifie sa portée avant de
+lire quoi que ce soit, ce qui donne une **403** si elle manque :
+
+```java
+McpAuthentication.requireScope(McpScope.CATALOG_READ);
+```
+
+**Le filtre** protège `/sse`, `/mcp` et `/mcp/*` (les chemins SSE et
+Streamable HTTP du serveur Spring AI), réglables par `mcp.security.protected-paths`.
+Un jeton absent, inconnu, révoqué ou expiré reçoit la **même 401** : on
+n'apprend rien sur les jetons qui existent. Un jeton révoqué l'est à la
+requête suivante, sans cache. `expiresAt` est facultatif : sans lui, le jeton
+vit jusqu'à sa révocation. La dernière utilisation est enregistrée **au plus
+une fois par minute**, pour qu'un client qui enchaîne les appels ne transforme
+pas chacun en écriture.
+
+**Côté gateway**, ces chemins ont leur propre chaîne de sécurité, sans
+validation JWT : un `Bearer mcp_…` y serait refusé comme JWT mal formé avant
+d'atteindre le service. Ils n'ont pas non plus de délai de réponse : un flux
+SSE reste ouvert tant que le client est connecté.
+
+```bash
+./mvnw -pl mcp-service -am install -DskipTests
+./mvnw -pl mcp-service spring-boot:run -Dspring-boot.run.profiles=local-h2
+TOKEN=$(curl -s -X POST localhost:8087/api/admin/mcp/tokens -H 'Content-Type: application/json' \
+  -d '{"name":"essai","scopes":["catalog:read"]}' | jq -r .token)
+curl -i localhost:8087/sse                                   # 401
+curl -i localhost:8087/sse -H "Authorization: Bearer $TOKEN" # 404 tant que M01 n'est pas là
+```
+
+## Gateway : le point d'entrée de l'API
+
+Tout le trafic entre par `api-gateway`, sur le port 8080. Les services ne sont
+pas joignables depuis l'extérieur : les règles ci-dessous sont donc le seul
+endroit où une route devient publique, authentifiée ou réservée au back-office.
+
+### Routes et accès
+
+| Chemin | Service | Accès |
+|---|---|---|
+| `/api/cart/**` | `cart-service` | **public** — le panier accepte les invités (`P01`) |
+| `/api/catalog/**` | `catalog-service` | **public en lecture** (`GET`) ; le reste exige un jeton |
+| `/api/admin/catalog/**` | `catalog-service` | rôle `collaborator` ou `admin` |
+| `/api/orders/**` | `order-service` | jeton valide |
+| `/api/admin/orders/**` | `order-service` | rôle `collaborator` ou `admin` |
+| `/api/mcp` | `mcp-service` | rôle `admin` |
+| `/actuator/health`, `/actuator/info`, `/actuator/prometheus` | gateway | sans jeton, mais jamais exposé par l'Ingress (`/api` et `/auth` seulement) |
+| tout le reste | — | jeton valide : on refuse par défaut |
+
+Convention : chaque service expose son sous-arbre d'administration sous
+`/api/admin/<domaine>/**`, et la gateway exige `collaborator` sur tout
+`/api/admin/**`. Un nouveau service s'ajoute donc avec deux routes et aucune
+règle de sécurité supplémentaire.
+
+### L'identité devient fiable
+
+La gateway supprime `X-User-Id` et `X-Auth-Subject` de **toute** requête
+entrante, puis repose `X-Auth-Subject` à partir du `sub` du jeton validé. Un
+service derrière la gateway peut donc faire confiance à `X-Auth-Subject` : il ne
+peut venir que d'une signature émise par Keycloak. Sans ce filtre, n'importe
+quel client pouvait réclamer le panier d'un autre en envoyant son `X-User-Id`.
+
+`X-Session-Token` n'est pas touché : il identifie un panier invité, pas un
+compte, et le client en est le propriétaire légitime. Le jeton lui-même est
+transmis tel quel, pour un service qui voudrait lire des claims plus fins.
+
+> **À faire côté services.** `cart-service` lit encore `X-User-Id`, un `Long`,
+> alors que `X-Auth-Subject` porte l'UUID Keycloak. La correspondance
+> UUID → identifiant applicatif arrive avec `U01` (#58). En attendant, une
+> requête authentifiée est traitée comme un panier invité plutôt que comme
+> celui de quelqu'un d'autre : c'est dégradé, mais sûr.
+
+### Lancer la gateway en local
+
+```bash
+docker compose up -d                        # Keycloak doit tourner
+./mvnw -pl api-gateway spring-boot:run
+curl -i http://localhost:8080/api/orders    # 401 sans jeton
+```
+
+Par défaut elle valide les jetons contre
+`http://localhost:8180/realms/ecommerce` et route vers `localhost:8081`,
+`localhost:8083` et `localhost:8084`. Dans Docker, les variables de `compose.yaml` remplacent ces
+valeurs — en particulier les clés de signature, qui se récupèrent sur l'URL
+interne de Keycloak alors que l'issuer reste l'URL frontale.
+
+### CORS
+
+Configuré une seule fois dans la gateway, jamais dans un service : les origines
+viennent de `CORS_ALLOWED_ORIGINS` (back-office Vite et serveur Expo par
+défaut), avec `Authorization`, `Content-Type` et `X-Session-Token` autorisés en
+requête, `X-Session-Token` exposé en lecture au navigateur, et les
+identifiants autorisés.
+
+## Images Docker
+
+Un seul `Dockerfile`, à la racine, construit n'importe quel service : le module
+est un paramètre.
+
+```bash
+docker build --build-arg MODULE=cart-service --build-arg SERVER_PORT=8083 \
+  -t cart-service .
+```
+
+`compose.yaml` passe ces arguments pour chaque service : containeriser un
+nouveau module ne demande donc pas d'écrire un Dockerfile, seulement de
+l'ajouter à la liste de POM décrite plus bas.
+
+**Le contexte de build est la racine du dépôt**, pas le dossier du module : la
+construction a besoin du POM parent et de `common-lib`. C'est aussi la raison
+d'être du `.dockerignore` — sans lui le contexte embarquerait tous les
+`target/` et le `.git`.
+
+**Deux étapes.** La première compile avec `maven:3.9.11-eclipse-temurin-21`,
+épinglée sur la même version que le wrapper du dépôt, pour qu'une construction
+locale et une construction d'image utilisent le même Maven. Les POM sont copiés
+avant les sources et `dependency:go-offline` remplit le dépôt Maven dans une
+couche à part : une modification de code ne retélécharge donc rien.
+**Un nouveau module doit être ajouté aux `COPY <module>/pom.xml` du
+Dockerfile**, sinon sa construction échoue sur un POM manquant.
+
+**Le jar est découpé en couches** par Spring Boot (`jarmode=tools`, option
+`extract --layers`) : dépendances, chargeur, dépendances SNAPSHOT, puis code
+applicatif. Les services partageant l'essentiel de leurs dépendances, leurs
+images partagent ces couches — ce qui allège les envois vers GHCR (`D03` #54)
+et les téléchargements dans le cluster (`D04` #88).
+
+**L'étape d'exécution** part d'un JRE Alpine, tourne sous l'utilisateur
+`spring` et jamais root, et laisse la JVM se dimensionner sur la limite mémoire
+du conteneur (`-XX:MaxRAMPercentage=75`) plutôt que sur la mémoire de la
+machine hôte. Les images pèsent environ 380 Mo.
+
+Si un service finit par exiger un runtime particulier, rien n'empêche de lui
+donner son propre Dockerfile : il suffira de repointer son `dockerfile:` dans
+le compose.
+
+### Publication sur GHCR
+
+Le workflow `.github/workflows/images.yml` (`D03` #54) construit les images et
+les pousse sur le registre de conteneurs de GitHub :
+
+```
+ghcr.io/mxrjup/e-commerce-back/<service>:<tag>
+```
+
+| Événement | Images construites | Poussées | Tags |
+|---|---|---|---|
+| Pull Request | services touchés | **non** | — |
+| push sur `dev` / `main` | **tous** les services | oui | `sha-<commit>`, `dev` ou `main` |
+| tag `vX.Y.Z` | **tous** les services | oui | `sha-<commit>`, `X.Y.Z`, `X.Y`, `latest` |
+
+**Sur une PR, l'image est construite sans être poussée** : un Dockerfile cassé
+se voit avant le merge, sans publier d'image d'un code pas encore relu. Un
+changement du `Dockerfile`, du `.dockerignore` ou du workflow reconstruit tous
+les services ; sinon les mêmes règles que la CI s'appliquent (voir plus bas).
+
+**Sur `dev` et `main`, tous les services sont poussés à chaque commit**, même
+ceux qui n'ont pas changé : un `sha-<commit>` désigne ainsi toujours un jeu
+d'images complet, et un déploiement (`D04` #88, `D05` #38) n'a qu'un tag à
+connaître. Le cache de couches de GitHub Actions rend la reconstruction d'un
+service inchangé rapide.
+
+**Le tag `vX.Y.Z` posé sur `main`** à la release ajoute les tags de version,
+ceux qu'un déploiement de production doit utiliser. `latest` ne suit que ces
+tags, jamais `dev`.
+
+Le workflow pousse avec le `GITHUB_TOKEN` (permission `packages: write`) :
+aucun secret à créer. **Visibilité** : les paquets héritent de celle du dépôt,
+public ; le cluster les tire donc sans identifiants (vérifié au premier push).
+
+Un service est reconnu à son `spring-boot-maven-plugin` : un nouveau service
+déclaré dans les `<modules>` du POM racine a donc son image sans toucher au
+workflow. Son port vient du `server.port` de son `application.yml`. Pour voir
+ce qu'une branche construirait :
+
+```bash
+.github/scripts/image-modules.sh origin/dev HEAD
+```
+
+### Déploiement en production
+
+Le workflow `.github/workflows/deploy.yml` (`D05` #38) déploie une version sur
+le cluster :
+
+| Déclencheur | Ce qui est déployé |
+|---|---|
+| tag `vX.Y.Z` poussé sur `main` | cette version, dès que le workflow `Images` a fini de la publier |
+| *Actions* → *Deploy* → *Run workflow* | la version saisie : **revenir à une version précédente**, ou redéployer la courante |
+
+Le rollback n'est donc pas une opération à part : c'est le déploiement d'un tag
+plus ancien, toujours présent sur GHCR puisqu'un tag ne se déplace ni ne se
+supprime jamais.
+
+**Ce que fait un déploiement**, dans `.github/scripts/deploy.sh` :
+
+1. il refuse un tag absent, ou posé ailleurs que sur `main` ;
+2. il vérifie que l'image de **chaque** service existe pour cette version,
+   avant de toucher au cluster ;
+3. il passe chaque service sur le **digest** de son image
+   (`X.Y.Z@sha256:…`), pas sur un tag ;
+4. il met à jour les services **un par un**, en attendant chaque rollout :
+   le quota du namespace n'a de marge que pour un pod de plus à la fois. **Si
+   un seul échoue, tous les services déjà mis à jour reviennent à leur
+   version précédente**, et le workflow échoue ;
+5. il enregistre la version déployée dans le ConfigMap `ecommerce-release`.
+
+Testé sur un cluster k3s aux contraintes de l'école, avec une version dont
+`cart-service` plante au démarrage : les trois services sont revenus à la
+version précédente. Pendant tout le déploiement raté et son retour arrière,
+196 requêtes sur 197 vers le panier ont abouti ; l'ancienne version a servi
+tant que la nouvelle n'était pas prête.
+
+```bash
+kubectl get configmap ecommerce-release -o jsonpath='{.data.version}'   # version en production
+kubectl rollout history deployment/cart-service                         # « deploy vX.Y.Z » par révision
+```
+
+**Le workflow ne s'active qu'une fois sur `main`** : GitHub ne lance un
+workflow `workflow_run` ou `workflow_dispatch` que depuis la branche par
+défaut. Il arrive donc avec la première release, et c'est elle qui fera le
+premier déploiement.
+
+**À configurer une fois**, dans *Settings* → *Environments* : un environnement
+**`production`**, avec le secret **`KUBECONFIG`** (le contenu du kubeconfig du
+namespace). Y ajouter des *Required reviewers* fait attendre chaque
+déploiement d'une approbation. Le secret n'est lisible que par ce job.
+
+**Si le cluster n'est pas joignable depuis GitHub** (API réservée au réseau de
+l'école), le même script se lance depuis un poste, avec le même résultat :
+
+```bash
+KUBECONFIG=~/.kube/ecole.yaml .github/scripts/deploy.sh v1.2.0
+```
+
+**Avec les manifests d'INFRA.** Le script change la version des services
+existants ; il ne crée ni ne modifie rien d'autre. Un `kubectl apply -k`
+d'INFRA remet les images au tag de son `kustomization.yaml` (`dev` pour
+l'instant) : redéployer ensuite la version en production,
+
+```bash
+.github/scripts/deploy.sh "$(kubectl get configmap ecommerce-release -o jsonpath='{.data.version}')"
+```
+
+ou faire lire ce ConfigMap par le déploiement d'INFRA.
+
+## Intégration continue
+
+GitHub Actions (`.github/workflows/ci.yml`) construit et teste le back-end à
+chaque Pull Request vers `dev` ou `main`, et à chaque merge sur ces branches.
+
+**Seuls les modules touchés sont reconstruits**, un job par module :
+
+| Changement | Modules construits |
+|---|---|
+| `<module>/**` | ce module |
+| `common-lib/**`, `pom.xml` racine, `mvnw`, `.mvn/**`, la CI elle-même | tous |
+| le reste : README, `compose.yaml`, `docker/`, `Dockerfile`… | aucun |
+
+Chaque job construit d'abord les modules dont il dépend (POM parent,
+`common-lib`) sans leurs tests, puis lance `./mvnw -pl <module> verify`. Sans
+base de comparaison (lancement manuel, premier push d'une branche), tout est
+construit. Pour voir ce qu'une branche déclencherait :
+
+```bash
+.github/scripts/ci-modules.sh origin/dev HEAD
+```
+
+**Le job `CI` résume le run** : vert si tous les modules construits sont verts,
+ou si aucun module n'était concerné. C'est **le seul check à rendre
+obligatoire** dans la protection des branches `dev` et `main` : les jobs par
+module n'existent que quand leur module change, un check obligatoire sur l'un
+d'eux bloquerait toute PR qui ne le touche pas.
+
+En cas d'échec, les rapports Surefire du module sont joints au run
+(`surefire-<module>`, gardés 7 jours).
+
+## Ajouter un service
+
+Exception : `mcp-service` utilise un parent Boot 3.5 propre pour les exigences
+de Spring AI, sans modifier le couple Boot/Cloud de la gateway ; voir le
+[guide MCP](docs/mcp.md). Il n'utilise pas `common-lib`, de base SQL ou de Kafka.
+
+1. Créer le dossier `<domaine>-service`, en anglais et en kebab-case.
+2. Son `pom.xml` hérite de `com.ecommerce:ecommerce-parent` avec
+   `<relativePath>../pom.xml</relativePath>`. Ne pas redéclarer `groupId`,
+   `version`, `java.version`, ni la configuration du `spring-boot-maven-plugin`
+   ni les versions de dépendances : tout vient du parent.
+3. Déclarer le module dans la section `<modules>` du `pom.xml` racine.
+4. Ajouter la dépendance `common-lib` (version `${project.version}`).
+5. Package racine `com.ecommerce.<domaine>`, classe
+   `<Domaine>ServiceApplication`.
+6. Déclarer le plugin `spring-boot-maven-plugin` dans `<build><plugins>`, sans
+   configuration.
+7. Ajouter `COPY <module>/pom.xml <module>/` au `Dockerfile` de la racine, sa
+   base de données à `docker/postgres/init/01-databases.sql` et son entrée dans
+   le profil `services` du `compose.yaml`, avec le port réservé au tableau des
+   modules.
+8. Lui donner son Deployment dans les manifests de `e-commerce-INFRA`
+   (`k8s/services/`) **avant la release suivante** : `deploy.sh` déploie tous
+   les modules du POM et s'arrête si l'un d'eux n'a pas de Deployment sur le
+   cluster.
+
+La CI n'a pas à être modifiée : elle lit la liste des modules dans le
+`pom.xml` racine.
+
+Une version de dépendance absente du BOM Spring Boot se déclare dans le
+`dependencyManagement` du POM racine, **jamais** dans le module.
+
+## Supervision : les métriques des services
+
+`D06` (#17) : chaque service expose ses métriques au format Prometheus sur
+`/actuator/prometheus`, sur son propre port. Prometheus les lit toutes les
+15 s ; Prometheus, Grafana et les dashboards sont dans `e-commerce-INFRA`
+(`monitoring/`).
+
+Rien à déclarer dans un service : `common-lib` apporte l'actuator et
+`micrometer-registry-prometheus`, et `MonitoringDefaultsEnvironmentPostProcessor`
+ajoute les réglages communs (`monitoring-defaults.properties`), avec la
+priorité la plus basse, comme ceux de Kafka :
+
+- `health`, `info` et `prometheus` exposés, rien d'autre (ni `env`, ni
+  `beans`, ni `heapdump`) ; sondes `liveness` et `readiness` activées ;
+- un tag **`application`** = `spring.application.name` sur chaque mesure :
+  un seul dashboard pour les huit services ;
+- les temps de réponse HTTP (`http_server_requests_seconds`) en
+  **histogramme**, de 5 ms à 10 s, pour calculer le 95e percentile ; de même
+  pour les requêtes relayées par la gateway, mesurées par route
+  (`spring_cloud_gateway_requests_seconds`, tag `routeId`).
+
+Ce qu'on y trouve sans rien coder : requêtes HTTP par route, statut et
+durée ; mémoire, GC et threads de la JVM ; CPU ; pool de connexions HikariCP ;
+consommateurs et producteurs Kafka.
+
+**Accès.** Les services protégés par un jeton (gateway, utilisateurs, SAV,
+notifications) laissent passer `/actuator/health/**`, `/actuator/info` et
+`/actuator/prometheus` sans jeton : Prometheus n'en a pas. Ces chemins ne sont
+jamais publics : l'Ingress n'ouvre que `/api` et `/auth`, et aucune route de
+la gateway ne mène à un `/actuator`. Un port de management séparé serait plus
+strict, mais changerait les sondes et healthchecks existants.
+
+```bash
+curl -s http://localhost:8081/actuator/prometheus | grep application=
+```
+
+`MetricsEndpointTest` (et `GatewayMetricsTest`) le vérifient service par
+service. Spring Boot coupe l'export des métriques dans les tests : ces classes
+le rétablissent avec `@AutoConfigureObservability`.
+
+## Contrat d'erreur partagé
+
+`common-lib` fournit la réponse d'erreur unique de la plateforme : les fronts
+web et mobile n'ont qu'une seule forme de payload à traiter, quel que soit le
+service interrogé.
+
+```json
+{
+  "timestamp": "2026-10-07T08:00:00Z",
+  "status": 404,
+  "error": "Not Found",
+  "message": "Cart 42 not found",
+  "details": null
+}
+```
+
+Il suffit de dépendre de `common-lib` : l'advice est enregistré par
+auto-configuration, sans annotation ni scan de composants côté service.
+
+- Lever `ResourceNotFoundException` pour un 404 métier : son message est repris
+  tel quel dans `message`.
+- Lever `BadRequestException` pour un 400 métier, quand la requête passe la
+  validation mais ne peut pas être traitée telle quelle : son message est repris
+  dans `message`.
+- Lever `ConflictException` pour un 409 : requête valide, mais en conflit avec
+  l'état des données (nom déjà pris, ressource encore utilisée).
+- Les erreurs de validation (`@Valid`) remplissent `details`.
+- Les statuts décidés par Spring sont conservés (404 sur une URL inconnue, 405
+  sur une mauvaise méthode, 400 sur un corps illisible).
+- Une exception imprévue est **journalisée** et renvoyée en 500 avec un message
+  générique : aucun détail interne ne sort du service.
+- Ne pas redéclarer de `@RestControllerAdvice` global dans un service, sauf pour
+  remplacer volontairement celui de `common-lib`.
+- Un service qui ajoute Spring Security doit mapper explicitement
+  `AccessDeniedException`, sinon elle serait traitée comme une erreur imprévue
+  au lieu d'un 403.
+
+## Événements Kafka
+
+`common-lib` porte tout ce qui est commun aux producteurs et aux
+consommateurs : les **classes d'événements**, la **configuration Spring
+Kafka** et la **politique de rejeu**. Un service déclare `spring-kafka` dans
+son `pom.xml`, et c'est tout : rien à écrire dans son `application.yml`.
+
+### Les événements
+
+Dans `com.ecommerce.common.event`, un `record` par événement. Producteur et
+consommateur utilisent **la même classe** : ne jamais en recopier une dans un
+service.
+
+| Classe | Topic | Propriété du nom de topic |
+|---|---|---|
+| `OrderPaidEvent` | `order.paid` | `app.kafka.topics.order-paid` |
+| `PriceDroppedEvent`, `BackInStockEvent` (via `CatalogEvent`) | `catalogue.evenements` | `app.kafka.topics.catalog-events` |
+| `SupportAdminReplyEvent` | `sav.reponse-admin` | `app.kafka.topics.support-admin-reply` |
+
+Tous portent un `eventId` (UUID) et un `occurredAt`, remplis automatiquement
+s'ils ne sont pas fournis. Un consommateur dont l'effet n'est pas idempotent
+par nature, comme l'envoi d'un e-mail, retient les `eventId` traités : Kafka
+garantit *au moins une* livraison, pas *exactement une*.
+
+`eventId` ne protège que de la relivraison **du même message**. Deux
+publications du même fait métier (deux webhooks Stripe pour un même paiement,
+traités en parallèle) portent deux `eventId` différents : là, dédoublonner sur
+une **clé métier**, comme `orderId` (c'est ce que fait le panier, #100).
+
+```java
+// Producteur
+@Value("${app.kafka.topics.order-paid}")
+private String orderPaidTopic;
+
+OrderPaidEvent event = OrderPaidEvent.builder()
+        .orderId(order.getId())
+        .orderNumber(order.getOrderNumber())
+        .userId(order.getUserId())
+        .totalInclTax(order.getTotalInclTax())
+        .build();
+kafkaTemplate.send(orderPaidTopic, order.getOrderNumber(), event);
+
+// Consommateur
+@KafkaListener(topics = "${app.kafka.topics.order-paid}")
+void onOrderPaid(OrderPaidEvent event) { ... }
+```
+
+La **clé** du message est l'identifiant métier (numéro de commande, id de
+variante, id de ticket) : tous les événements d'un même objet tombent dans la
+même partition et sont lus dans l'ordre.
+
+`catalogue.evenements` transporte deux sortes d'événements. `CatalogEvent` est
+une interface scellée : un seul listener les reçoit toutes, et un `switch`
+exhaustif ne compile plus le jour où une troisième sorte est ajoutée.
+
+```java
+@KafkaListener(topics = "${app.kafka.topics.catalog-events}")
+void onCatalogEvent(CatalogEvent event) {
+    switch (event) {
+        case PriceDroppedEvent drop -> alerts.priceDropped(drop);
+        case BackInStockEvent restock -> alerts.backInStock(restock);
+    }
+}
+```
+
+**Faire évoluer un événement.** Ajouter un champ est sans risque : un
+consommateur plus ancien l'ignore. Renommer ou supprimer un champ casse les
+consommateurs déjà déployés : ajouter le nouveau champ, migrer les
+consommateurs, puis seulement retirer l'ancien.
+
+### La configuration commune
+
+Fournie par `common-lib` avec la priorité la plus basse : une valeur posée
+dans l'`application.yml` d'un service, une variable d'environnement ou une
+propriété de test la remplace.
+
+| Réglage | Valeur | Pourquoi |
+|---|---|---|
+| `bootstrap-servers` | `localhost:29092` | l'IDE ; en conteneur, `SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka:9092` |
+| sérialisation | JSON, classe dans les en-têtes | le consommateur retrouve le type exact, y compris derrière `CatalogEvent` |
+| `acks` | `all` | un événement confirmé n'est pas perdu |
+| `group-id` | `spring.application.name` | chaque service reçoit tous les événements d'un topic |
+| `auto-offset-reset` | `earliest` | un nouveau service lit ce qui a été publié avant son premier démarrage |
+| paquets autorisés | `com.ecommerce.common.event` | jamais `*` : sinon un message choisit la classe que le consommateur instancie |
+
+### Rejeu et topic de rebut
+
+Un listener qui lève une exception est **rejoué sur place**, avec une attente
+qui double à chaque fois. Une fois les tentatives épuisées, le message part
+dans `<topic>.dlt`, avec l'exception dans ses en-têtes (`kafka_dlt-exception-message`,
+`kafka_dlt-original-topic`, ...), et le consommateur passe au suivant : un
+message en échec ne bloque pas la partition.
+
+> **À condition que le DLT existe.** L'auto-création étant coupée, publier
+> dans un `.dlt` absent échoue : le message n'est jamais écarté, il est relivré
+> sans fin et **sa partition est bloquée** (mesuré par la revue : 26 tentatives
+> en 20 s, et le message suivant jamais reçu). Donc :
+>
+> - le Job de création des topics d'INFRA (mxrjup/e-commerce-INFRA#3) doit être
+>   déployé **avant ou en même temps** que les services qui consomment ;
+> - un topic renommé par `app.kafka.topics.*` doit être créé, **lui et son
+>   `.dlt`**, dans `create-topics.sh` et dans INFRA : les scripts ne créent que
+>   les noms par défaut.
+
+| Propriété | Défaut |
+|---|---|
+| `app.kafka.retry.max-retries` | `3` (soit 4 tentatives) ; `0` : rebut dès le premier échec |
+| `app.kafka.retry.initial-interval` | `1s` |
+| `app.kafka.retry.multiplier` | `2` |
+| `app.kafka.retry.max-interval` | `10s` |
+
+Soit 1 s, 2 s puis 4 s d'attente : environ 7 secondes avant le rebut.
+
+Un message **illisible** (JSON invalide, classe inconnue ou hors des paquets
+autorisés) ne sera jamais lu correctement : il part dans le DLT **sans
+rejeu**, avec ses octets d'origine intacts.
+
+Pour qu'une exception métier parte directement au rebut sans attendre, le
+service l'ajoute au gestionnaire commun :
+
+```java
+@Autowired
+void doNotRetry(DefaultErrorHandler kafkaErrorHandler) {
+    kafkaErrorHandler.addNotRetryableExceptions(InvalidOrderException.class);
+}
+```
+
+Le rejeu est **bloquant** : pendant les quelques secondes d'attente, la
+partition n'avance pas. C'est voulu : l'ordre des événements d'une même clé
+est préservé, et aucun topic de rejeu supplémentaire n'est à créer et
+surveiller. Si un traitement doit un jour attendre plusieurs minutes (un
+service tiers indisponible), il faudra passer à `@RetryableTopic` pour ce
+listener-là.
+
+**Lire un DLT** pour comprendre un échec :
+
+```bash
+docker exec ecommerce-kafka /opt/kafka/bin/kafka-console-consumer.sh \
+  --bootstrap-server localhost:9092 --topic order.paid.dlt --from-beginning \
+  --property print.key=true --property print.headers=true
+```
+
+## Conventions
+
+- **Git, commits, branches, PR, tags** : `CLAUDE.md` est la source unique. Rien
+  n'est dupliqué ici.
+- **Langue** : code, Javadoc et messages de commit en anglais ; documentation
+  d'équipe (README, description de PR) en français.
+- **Indentation et encodage** : imposés par `.editorconfig` (4 espaces en Java,
+  2 en YAML/JSON/Markdown, UTF-8, LF).
+
+## Pas encore en place
+
+| Sujet | Issue |
+|---|---|
+| Correspondance UUID Keycloak → identifiant applicatif | `U01` #58 |
+| Client confidentiel pour l'Admin API Keycloak | `U04` #91 |
+| Dockerfile du front web | `D01` #87, après `T06` #11 |
+| Manifests Kubernetes | `D04` #88 |

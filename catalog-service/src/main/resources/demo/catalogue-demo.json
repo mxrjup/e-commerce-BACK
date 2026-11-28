@@ -1,0 +1,320 @@
+{
+  "brands": [
+    {"name": "Logitech", "slug": "logitech"},
+    {"name": "Razer", "slug": "razer"},
+    {"name": "Corsair", "slug": "corsair"},
+    {"name": "Sony", "slug": "sony"},
+    {"name": "Samsung", "slug": "samsung"},
+    {"name": "Dell", "slug": "dell"},
+    {"name": "LG", "slug": "lg"},
+    {"name": "Apple", "slug": "apple"},
+    {"name": "Lenovo", "slug": "lenovo"},
+    {"name": "ASUS", "slug": "asus"},
+    {"name": "Crucial", "slug": "crucial"}
+  ],
+  "categories": [
+    {"name": "Périphériques", "slug": "peripheriques", "children": [
+      {"name": "Claviers", "slug": "claviers"},
+      {"name": "Souris", "slug": "souris"},
+      {"name": "Casques", "slug": "casques"}
+    ]},
+    {"name": "Écrans", "slug": "ecrans"},
+    {"name": "Ordinateurs portables", "slug": "ordinateurs-portables"},
+    {"name": "Composants", "slug": "composants", "children": [
+      {"name": "Cartes graphiques", "slug": "cartes-graphiques"},
+      {"name": "Stockage", "slug": "stockage"},
+      {"name": "Mémoire", "slug": "memoire"}
+    ]}
+  ],
+  "universes": [
+    {"name": "Gaming", "slug": "gaming", "description": "Réactivité, RGB et grands écrans rapides.", "position": 0},
+    {"name": "Télétravail", "slug": "teletravail", "description": "Le confort pour travailler toute la journée.", "position": 1},
+    {"name": "Création", "slug": "creation", "description": "Couleurs fidèles et puissance pour le montage.", "position": 2},
+    {"name": "Setup minimaliste", "slug": "setup-minimaliste", "description": "Peu d'objets, bien choisis.", "position": 3}
+  ],
+  "attributes": [
+    {"name": "Couleur", "values": ["Noir", "Blanc", "Gris sidéral", "Argent"]},
+    {"name": "Layout clavier", "values": ["AZERTY", "QWERTY"]},
+    {"name": "Configuration", "values": ["16 Go / 512 Go", "32 Go / 1 To"]},
+    {"name": "Capacité", "values": ["1 To", "2 To", "32 Go (2 x 16 Go)", "64 Go (2 x 32 Go)"]}
+  ],
+  "products": [
+    {
+      "title": "Logitech MX Keys S",
+      "slug": "logitech-mx-keys-s",
+      "brand": "logitech",
+      "category": "claviers",
+      "vat": "Taux normal",
+      "status": "PUBLIE",
+      "universes": ["teletravail", "setup-minimaliste"],
+      "description": "<p>Clavier sans fil rétroéclairé, touches concaves et frappe silencieuse.</p>",
+      "specifications": {"Connectique": "Bluetooth, récepteur Logi Bolt", "Autonomie": "10 jours rétroéclairé", "Garantie": "2 ans"},
+      "variants": [
+        {"sku": "LOGI-MXKEYS-S-AZ-GRI", "purchasePrice": 62.0, "salePrice": 99.99, "discountPrice": null, "ecoTax": 0.1, "weightKg": 0.81, "stock": 25, "alertThreshold": 5, "values": {"Layout clavier": "AZERTY", "Couleur": "Gris sidéral"}},
+        {"sku": "LOGI-MXKEYS-S-AZ-BLA", "purchasePrice": 62.0, "salePrice": 99.99, "discountPrice": null, "ecoTax": 0.1, "weightKg": 0.81, "stock": 14, "alertThreshold": 5, "values": {"Layout clavier": "AZERTY", "Couleur": "Blanc"}},
+        {"sku": "LOGI-MXKEYS-S-QW-GRI", "purchasePrice": 62.0, "salePrice": 99.99, "discountPrice": null, "ecoTax": 0.1, "weightKg": 0.81, "stock": 4, "alertThreshold": 5, "values": {"Layout clavier": "QWERTY", "Couleur": "Gris sidéral"}}
+      ]
+    },
+    {
+      "title": "Logitech G915 TKL",
+      "slug": "logitech-g915-tkl",
+      "brand": "logitech",
+      "category": "claviers",
+      "vat": "Taux normal",
+      "status": "PUBLIE",
+      "universes": ["gaming"],
+      "description": "<p>Clavier mécanique gaming sans pavé numérique, switches low profile.</p>",
+      "specifications": {"Switches": "GL Tactile", "Connectique": "Lightspeed, Bluetooth, USB", "Garantie": "2 ans"},
+      "variants": [
+        {"sku": "LOGI-G915TKL-AZ-NOI", "purchasePrice": 130.0, "salePrice": 191.66, "discountPrice": 166.66, "ecoTax": 0.1, "weightKg": 0.81, "stock": 8, "alertThreshold": 3, "values": {"Layout clavier": "AZERTY", "Couleur": "Noir"}},
+        {"sku": "LOGI-G915TKL-AZ-BLA", "purchasePrice": 130.0, "salePrice": 191.66, "discountPrice": null, "ecoTax": 0.1, "weightKg": 0.81, "stock": 2, "alertThreshold": 3, "values": {"Layout clavier": "AZERTY", "Couleur": "Blanc"}}
+      ]
+    },
+    {
+      "title": "Corsair K70 RGB Pro",
+      "slug": "corsair-k70-rgb-pro",
+      "brand": "corsair",
+      "category": "claviers",
+      "vat": "Taux normal",
+      "status": "PUBLIE",
+      "universes": ["gaming"],
+      "description": "<p>Clavier mécanique pleine taille, cadre en aluminium et repose-poignet.</p>",
+      "specifications": {"Switches": "Cherry MX Red", "Connectique": "USB-C", "Garantie": "2 ans"},
+      "variants": [
+        {"sku": "CORS-K70PRO-AZ-NOI", "purchasePrice": 95.0, "salePrice": 149.99, "discountPrice": null, "ecoTax": 0.1, "weightKg": 1.2, "stock": 0, "alertThreshold": 3, "values": {"Layout clavier": "AZERTY", "Couleur": "Noir"}}
+      ]
+    },
+    {
+      "title": "Logitech MX Master 3S",
+      "slug": "logitech-mx-master-3s",
+      "brand": "logitech",
+      "category": "souris",
+      "vat": "Taux normal",
+      "status": "PUBLIE",
+      "universes": ["teletravail", "creation"],
+      "description": "<p>Souris ergonomique silencieuse, molette électromagnétique.</p>",
+      "specifications": {"Capteur": "8 000 DPI", "Connectique": "Bluetooth, récepteur Logi Bolt", "Garantie": "2 ans"},
+      "variants": [
+        {"sku": "LOGI-MXM3S-GRI", "purchasePrice": 55.0, "salePrice": 91.66, "discountPrice": null, "ecoTax": 0.05, "weightKg": 0.141, "stock": 40, "alertThreshold": 8, "values": {"Couleur": "Gris sidéral"}},
+        {"sku": "LOGI-MXM3S-BLA", "purchasePrice": 55.0, "salePrice": 91.66, "discountPrice": null, "ecoTax": 0.05, "weightKg": 0.141, "stock": 18, "alertThreshold": 8, "values": {"Couleur": "Blanc"}}
+      ]
+    },
+    {
+      "title": "Razer DeathAdder V3 Pro",
+      "slug": "razer-deathadder-v3-pro",
+      "brand": "razer",
+      "category": "souris",
+      "vat": "Taux normal",
+      "status": "PUBLIE",
+      "universes": ["gaming"],
+      "description": "<p>Souris gaming sans fil ultra-légère, forme ergonomique.</p>",
+      "specifications": {"Capteur": "Focus Pro 30K", "Poids": "63 g", "Garantie": "2 ans"},
+      "variants": [
+        {"sku": "RAZ-DAV3PRO-NOI", "purchasePrice": 80.0, "salePrice": 133.33, "discountPrice": null, "ecoTax": 0.05, "weightKg": 0.063, "stock": 15, "alertThreshold": 4, "values": {"Couleur": "Noir"}},
+        {"sku": "RAZ-DAV3PRO-BLA", "purchasePrice": 80.0, "salePrice": 133.33, "discountPrice": null, "ecoTax": 0.05, "weightKg": 0.063, "stock": 6, "alertThreshold": 4, "values": {"Couleur": "Blanc"}}
+      ]
+    },
+    {
+      "title": "Logitech G502 X",
+      "slug": "logitech-g502-x",
+      "brand": "logitech",
+      "category": "souris",
+      "vat": "Taux normal",
+      "status": "PUBLIE",
+      "universes": ["gaming"],
+      "description": "<p>Souris gaming filaire à switches hybrides, 13 commandes programmables.</p>",
+      "specifications": {"Capteur": "Hero 25K", "Connectique": "USB", "Garantie": "2 ans"},
+      "variants": [
+        {"sku": "LOGI-G502X-NOI", "purchasePrice": 40.0, "salePrice": 74.99, "discountPrice": 58.33, "ecoTax": 0.05, "weightKg": 0.089, "stock": 30, "alertThreshold": 6, "values": {"Couleur": "Noir"}}
+      ]
+    },
+    {
+      "title": "Sony WH-1000XM5",
+      "slug": "sony-wh-1000xm5",
+      "brand": "sony",
+      "category": "casques",
+      "vat": "Taux normal",
+      "status": "PUBLIE",
+      "universes": ["teletravail"],
+      "description": "<p>Casque sans fil à réduction de bruit active, 30 heures d'autonomie.</p>",
+      "specifications": {"Autonomie": "30 heures", "Connectique": "Bluetooth 5.2, jack 3,5 mm", "Garantie": "2 ans"},
+      "variants": [
+        {"sku": "SONY-WH1000XM5-NOI", "purchasePrice": 210.0, "salePrice": 316.66, "discountPrice": 266.66, "ecoTax": 0.1, "weightKg": 0.25, "stock": 10, "alertThreshold": 3, "values": {"Couleur": "Noir"}},
+        {"sku": "SONY-WH1000XM5-ARG", "purchasePrice": 210.0, "salePrice": 316.66, "discountPrice": null, "ecoTax": 0.1, "weightKg": 0.25, "stock": 3, "alertThreshold": 3, "values": {"Couleur": "Argent"}}
+      ]
+    },
+    {
+      "title": "Corsair HS80 RGB Wireless",
+      "slug": "corsair-hs80-rgb-wireless",
+      "brand": "corsair",
+      "category": "casques",
+      "vat": "Taux normal",
+      "status": "PUBLIE",
+      "universes": ["gaming"],
+      "description": "<p>Casque gaming sans fil, son spatial Dolby Atmos.</p>",
+      "specifications": {"Autonomie": "20 heures", "Connectique": "Slipstream, USB", "Garantie": "2 ans"},
+      "variants": [
+        {"sku": "CORS-HS80-NOI", "purchasePrice": 78.0, "salePrice": 133.33, "discountPrice": null, "ecoTax": 0.1, "weightKg": 0.367, "stock": 12, "alertThreshold": 3, "values": {"Couleur": "Noir"}}
+      ]
+    },
+    {
+      "title": "Samsung Odyssey G7 27\"",
+      "slug": "samsung-odyssey-g7-27",
+      "brand": "samsung",
+      "category": "ecrans",
+      "vat": "Taux normal",
+      "status": "PUBLIE",
+      "universes": ["gaming"],
+      "description": "<p>Écran incurvé QHD 240 Hz pour le jeu compétitif.</p>",
+      "specifications": {"Diagonale": "27 pouces", "Définition": "2560 x 1440", "Fréquence": "240 Hz", "Garantie": "3 ans"},
+      "variants": [
+        {"sku": "SAMS-ODG7-27", "purchasePrice": 320.0, "salePrice": 458.33, "discountPrice": null, "ecoTax": 2.5, "weightKg": 6.5, "stock": 5, "alertThreshold": 2, "values": {}}
+      ]
+    },
+    {
+      "title": "Dell UltraSharp U2723QE",
+      "slug": "dell-ultrasharp-u2723qe",
+      "brand": "dell",
+      "category": "ecrans",
+      "vat": "Taux normal",
+      "status": "PUBLIE",
+      "universes": ["teletravail", "creation"],
+      "description": "<p>Écran 4K IPS Black avec hub USB-C 90 W.</p>",
+      "specifications": {"Diagonale": "27 pouces", "Définition": "3840 x 2160", "Connectique": "USB-C 90 W, HDMI, DisplayPort", "Garantie": "3 ans"},
+      "variants": [
+        {"sku": "DELL-U2723QE", "purchasePrice": 410.0, "salePrice": 583.33, "discountPrice": null, "ecoTax": 2.5, "weightKg": 6.6, "stock": 7, "alertThreshold": 2, "values": {}}
+      ]
+    },
+    {
+      "title": "LG UltraGear 27GR95QE",
+      "slug": "lg-ultragear-27gr95qe",
+      "brand": "lg",
+      "category": "ecrans",
+      "vat": "Taux normal",
+      "status": "PUBLIE",
+      "universes": ["gaming"],
+      "description": "<p>Écran OLED QHD 240 Hz, temps de réponse 0,03 ms.</p>",
+      "specifications": {"Diagonale": "27 pouces", "Dalle": "OLED", "Fréquence": "240 Hz", "Garantie": "2 ans"},
+      "variants": [
+        {"sku": "LG-27GR95QE", "purchasePrice": 600.0, "salePrice": 833.33, "discountPrice": null, "ecoTax": 2.5, "weightKg": 7.0, "stock": 2, "alertThreshold": 2, "values": {}}
+      ]
+    },
+    {
+      "title": "Apple MacBook Air 13\" M3",
+      "slug": "apple-macbook-air-13-m3",
+      "brand": "apple",
+      "category": "ordinateurs-portables",
+      "vat": "Taux normal",
+      "status": "PUBLIE",
+      "universes": ["creation", "setup-minimaliste"],
+      "description": "<p>Ordinateur portable fin et silencieux, puce M3, jusqu'à 18 heures d'autonomie.</p>",
+      "specifications": {"Processeur": "Apple M3", "Écran": "13,6 pouces Liquid Retina", "Autonomie": "18 heures", "Garantie": "1 an"},
+      "variants": [
+        {"sku": "APPL-MBA13M3-16-512-GRI", "purchasePrice": 1050.0, "salePrice": 1249.17, "discountPrice": null, "ecoTax": 1.0, "weightKg": 1.24, "stock": 6, "alertThreshold": 2, "values": {"Configuration": "16 Go / 512 Go", "Couleur": "Gris sidéral"}},
+        {"sku": "APPL-MBA13M3-16-512-ARG", "purchasePrice": 1050.0, "salePrice": 1249.17, "discountPrice": null, "ecoTax": 1.0, "weightKg": 1.24, "stock": 4, "alertThreshold": 2, "values": {"Configuration": "16 Go / 512 Go", "Couleur": "Argent"}},
+        {"sku": "APPL-MBA13M3-32-1T-GRI", "purchasePrice": 1400.0, "salePrice": 1665.83, "discountPrice": null, "ecoTax": 1.0, "weightKg": 1.24, "stock": 2, "alertThreshold": 2, "values": {"Configuration": "32 Go / 1 To", "Couleur": "Gris sidéral"}}
+      ]
+    },
+    {
+      "title": "Lenovo ThinkPad X1 Carbon Gen 12",
+      "slug": "lenovo-thinkpad-x1-carbon-gen-12",
+      "brand": "lenovo",
+      "category": "ordinateurs-portables",
+      "vat": "Taux normal",
+      "status": "PUBLIE",
+      "universes": ["teletravail"],
+      "description": "<p>Ultraportable professionnel de 1,09 kg, clavier ThinkPad.</p>",
+      "specifications": {"Processeur": "Intel Core Ultra 7", "Écran": "14 pouces 2,8K OLED", "Garantie": "3 ans"},
+      "variants": [
+        {"sku": "LENO-X1C12-16-512", "purchasePrice": 1300.0, "salePrice": 1582.5, "discountPrice": null, "ecoTax": 1.0, "weightKg": 1.09, "stock": 5, "alertThreshold": 2, "values": {"Configuration": "16 Go / 512 Go", "Couleur": "Noir"}},
+        {"sku": "LENO-X1C12-32-1T", "purchasePrice": 1600.0, "salePrice": 1915.83, "discountPrice": null, "ecoTax": 1.0, "weightKg": 1.09, "stock": 3, "alertThreshold": 2, "values": {"Configuration": "32 Go / 1 To", "Couleur": "Noir"}}
+      ]
+    },
+    {
+      "title": "ASUS ROG Zephyrus G14",
+      "slug": "asus-rog-zephyrus-g14",
+      "brand": "asus",
+      "category": "ordinateurs-portables",
+      "vat": "Taux normal",
+      "status": "PUBLIE",
+      "universes": ["gaming"],
+      "description": "<p>PC portable gaming 14 pouces OLED 120 Hz, châssis en aluminium.</p>",
+      "specifications": {"Processeur": "AMD Ryzen 9 8945HS", "Carte graphique": "GeForce RTX 4070", "Garantie": "2 ans"},
+      "variants": [
+        {"sku": "ASUS-G14-32-1T", "purchasePrice": 1550.0, "salePrice": 1832.5, "discountPrice": null, "ecoTax": 1.0, "weightKg": 1.5, "stock": 4, "alertThreshold": 2, "values": {"Configuration": "32 Go / 1 To", "Couleur": "Gris sidéral"}}
+      ]
+    },
+    {
+      "title": "ASUS ROG Strix GeForce RTX 4070 Ti Super",
+      "slug": "asus-rog-strix-rtx-4070-ti-super",
+      "brand": "asus",
+      "category": "cartes-graphiques",
+      "vat": "Taux normal",
+      "status": "PUBLIE",
+      "universes": ["gaming", "creation"],
+      "description": "<p>Carte graphique 16 Go GDDR6X, refroidissement triple ventilateur.</p>",
+      "specifications": {"Mémoire": "16 Go GDDR6X", "Alimentation conseillée": "750 W", "Garantie": "3 ans"},
+      "variants": [
+        {"sku": "ASUS-STRIX-4070TIS", "purchasePrice": 690.0, "salePrice": 833.33, "discountPrice": null, "ecoTax": 0.1, "weightKg": 1.9, "stock": 3, "alertThreshold": 2, "values": {}}
+      ]
+    },
+    {
+      "title": "Samsung 990 Pro",
+      "slug": "samsung-990-pro",
+      "brand": "samsung",
+      "category": "stockage",
+      "vat": "Taux normal",
+      "status": "PUBLIE",
+      "universes": ["gaming", "creation"],
+      "description": "<p>SSD NVMe PCIe 4.0, jusqu'à 7 450 Mo/s en lecture.</p>",
+      "specifications": {"Format": "M.2 2280", "Interface": "PCIe 4.0 x4 NVMe", "Garantie": "5 ans"},
+      "variants": [
+        {"sku": "SAMS-990PRO-1T", "purchasePrice": 70.0, "salePrice": 108.33, "discountPrice": null, "ecoTax": 0.02, "weightKg": 0.009, "stock": 50, "alertThreshold": 10, "values": {"Capacité": "1 To"}},
+        {"sku": "SAMS-990PRO-2T", "purchasePrice": 115.0, "salePrice": 174.99, "discountPrice": null, "ecoTax": 0.02, "weightKg": 0.009, "stock": 20, "alertThreshold": 5, "values": {"Capacité": "2 To"}}
+      ]
+    },
+    {
+      "title": "Crucial Pro DDR5 6000 MHz",
+      "slug": "crucial-pro-ddr5-6000",
+      "brand": "crucial",
+      "category": "memoire",
+      "vat": "Taux normal",
+      "status": "PUBLIE",
+      "universes": ["gaming", "creation"],
+      "description": "<p>Kit de mémoire DDR5 pour plateformes Intel et AMD récentes.</p>",
+      "specifications": {"Fréquence": "6000 MHz", "Latence": "CL36", "Garantie": "à vie"},
+      "variants": [
+        {"sku": "CRUC-DDR5-6000-32", "purchasePrice": 65.0, "salePrice": 99.99, "discountPrice": null, "ecoTax": 0.02, "weightKg": 0.05, "stock": 35, "alertThreshold": 8, "values": {"Capacité": "32 Go (2 x 16 Go)"}},
+        {"sku": "CRUC-DDR5-6000-64", "purchasePrice": 120.0, "salePrice": 183.33, "discountPrice": null, "ecoTax": 0.02, "weightKg": 0.05, "stock": 10, "alertThreshold": 4, "values": {"Capacité": "64 Go (2 x 32 Go)"}}
+      ]
+    },
+    {
+      "title": "Corsair Vengeance RGB DDR5",
+      "slug": "corsair-vengeance-rgb-ddr5",
+      "brand": "corsair",
+      "category": "memoire",
+      "vat": "Taux normal",
+      "status": "BROUILLON",
+      "universes": ["gaming"],
+      "description": "<p>Fiche en préparation.</p>",
+      "specifications": {"Fréquence": "6400 MHz"},
+      "variants": [
+        {"sku": "CORS-VENG-DDR5-32", "purchasePrice": 75.0, "salePrice": 116.66, "discountPrice": null, "ecoTax": 0.02, "weightKg": 0.06, "stock": 0, "alertThreshold": 4, "values": {"Capacité": "32 Go (2 x 16 Go)"}}
+      ]
+    },
+    {
+      "title": "Logitech MX Keys (ancienne génération)",
+      "slug": "logitech-mx-keys",
+      "brand": "logitech",
+      "category": "claviers",
+      "vat": "Taux normal",
+      "status": "ARCHIVE",
+      "universes": ["teletravail"],
+      "description": "<p>Remplacé par le MX Keys S.</p>",
+      "specifications": {"Connectique": "Bluetooth, récepteur Unifying"},
+      "variants": [
+        {"sku": "LOGI-MXKEYS-AZ-GRI", "purchasePrice": 60.0, "salePrice": 91.66, "discountPrice": null, "ecoTax": 0.1, "weightKg": 0.81, "stock": 0, "alertThreshold": 0, "values": {"Layout clavier": "AZERTY", "Couleur": "Gris sidéral"}}
+      ]
+    }
+  ]
+}

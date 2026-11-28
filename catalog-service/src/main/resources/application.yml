@@ -1,0 +1,79 @@
+server:
+  port: 8081
+  tomcat:
+    # Une photo trop grosse (plus de 5 Mo) est refusee, mais Tomcat ne lit et ne jette que 2 Mo du
+    # reste de l'envoi par defaut : au-dela, il arrete de lire sans repondre, et le client reste
+    # bloque. Jusqu'a 20 Mo, il lit tout et repond 413 ; au-dela, il coupe la connexion.
+    max-swallow-size: 20MB
+
+spring:
+  application:
+    name: catalog-service
+
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:ecommerce_catalog}}
+    username: ${SPRING_DATASOURCE_USERNAME:postgres}
+    password: ${SPRING_DATASOURCE_PASSWORD:postgres}
+    driver-class-name: org.postgresql.Driver
+
+  # Flyway cree et fait evoluer le schema (src/main/resources/db/migration) ;
+  # Hibernate se contente de verifier que les entites y correspondent.
+  flyway:
+    enabled: true
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        format_sql: true
+    show-sql: false
+    open-in-view: false
+
+  # Les evenements du catalogue (C09) partent apres l'enregistrement, dans la requete du back-office :
+  # si le broker est injoignable, l'envoi abandonne apres 5 s (60 par defaut) et la modification reste.
+  kafka:
+    producer:
+      properties:
+        max.block.ms: 5000
+
+  # Les photos des variantes (C06) : 5 Mo par image, un peu plus pour l'enveloppe du formulaire.
+  servlet:
+    multipart:
+      max-file-size: 5MB
+      max-request-size: 6MB
+
+catalog:
+  images:
+    # Un volume Docker en local, un PVC en Kubernetes : les photos survivent aux redemarrages.
+    directory: ${CATALOG_IMAGES_DIR:/data/images}
+    # L'adresse publique ou la gateway les sert (GET /api/catalog/images/**). Elle est enregistree
+    # telle quelle dans variante_image : la vitrine, le mobile et le back-office l'utilisent sans calcul.
+    public-url: ${CATALOG_IMAGES_PUBLIC_URL:http://localhost:8080/api/catalog/images}
+    max-per-variant: 10
+
+---
+spring:
+  config:
+    activate:
+      on-profile: local-h2
+
+  # Mode PostgreSQL : les memes migrations tournent sur H2 et sur PostgreSQL.
+  datasource:
+    url: jdbc:h2:mem:catalogdb;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: ""
+
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+
+  jpa:
+    show-sql: true
+
+catalog:
+  images:
+    # Hors Docker, /data n'existe pas forcement : les photos vont dans le dossier temporaire.
+    directory: ${CATALOG_IMAGES_DIR:${java.io.tmpdir}/log-catalog-images}

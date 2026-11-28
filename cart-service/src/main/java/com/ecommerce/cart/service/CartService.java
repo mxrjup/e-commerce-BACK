@@ -1,0 +1,232 @@
+package com.ecommerce.cart.service;
+
+import com.ecommerce.cart.client.CatalogClient;
+import com.ecommerce.cart.client.CatalogVariantResponse;
+import com.ecommerce.cart.dto.AddCartItemRequest;
+import com.ecommerce.cart.dto.CartItemResponse;
+import com.ecommerce.cart.dto.CartResponse;
+import com.ecommerce.cart.dto.SuggestedAccessoryResponse;
+import com.ecommerce.cart.entity.Cart;
+import com.ecommerce.cart.entity.CartItem;
+import com.ecommerce.cart.entity.ProcessedOrderEvent;
+import com.ecommerce.cart.repository.CartRepository;
+import com.ecommerce.cart.repository.ProcessedOrderEventRepository;
+import com.ecommerce.common.exception.ResourceNotFoundException;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.UUID;
+
+@Service
+@RequiredArgsConstructor
+@Transactional
+public class CartService {
+
+    private static final int MAX_ACCESSORY_SUGGESTIONS = 8;
+
+    private final CartRepository cartRepository;
+    private final ProcessedOrderEventRepository processedOrderEventRepository;
+    private final CatalogClient catalogClient;
+
+    public Cart getOrCreateCart(Long userId, String sessionToken) {
+
+        if (userId != null) {
+            return cartRepository.findByUserIdWithItems(userId)
+                    .orElseGet(() -> cartRepository.save(new Cart(userId, null)));
+        }
+
+        if (sessionToken != null && !sessionToken.trim().isEmpty()) {
+            return cartRepository.findBySessionTokenWithItems(sessionToken.trim())
+                    .orElseGet(() -> cartRepository.save(new Cart(null, sessionToken.trim())));
+        }
+
+        String newSessionToken = UUID.randomUUID().toString();
+        return cartRepository.save(new Cart(null, newSessionToken));
+    }
+
+    /**
+     * Reads the cart, creating it when the visitor does not have one yet. The
+     * transaction has to stay writable for that: PostgreSQL rejects an INSERT
+     * in a read-only transaction, while H2 lets it through.
+     */
+    public CartResponse getCart(Long userId, String sessionToken) {
+        Cart cart = getOrCreateCart(userId, sessionToken);
+        return buildEnrichedCartResponse(cart);
+    }
+
+    private CartResponse buildEnrichedCartResponse(Cart cart) {
+        List<Long> variantIds = cart.getItems().stream()
+                .map(CartItem::getVariantId)
+                .toList();
+
+        Map<Long, CatalogVariantResponse> variantsById = new HashMap<>();
+        catalogClient.getVariants(variantIds)
+                .forEach(variant -> variantsById.put(variant.id(), variant));
+
+        List<CartItemResponse> items = cart.getItems().stream()
+                .map(item -> enrichCartItem(item, variantsById))
+                .toList();
+
+        CartResponse response = CartResponse.fromEntity(cart);
+        response.setItems(items);
+        response.setTotalItems(items.stream().mapToInt(CartItemResponse::getQuantity).sum());
+        response.setSuggestedAccessories(suggestedAccessories(variantIds));
+        return response;
+    }
+
+    private List<SuggestedAccessoryResponse> suggestedAccessories(List<Long> cartVariantIds) {
+        if (cartVariantIds == null || cartVariantIds.isEmpty()) {
+            return List.of();
+        }
+
+        List<CatalogVariantResponse> candidates = Optional
+                .ofNullable(catalogClient.getAccessoryVariants(cartVariantIds, MAX_ACCESSORY_SUGGESTIONS))
+                .orElse(List.of());
+
+        return candidates.stream()
+                .filter(candidate -> candidate != null && candidate.id() != null)
+                .filter(candidate -> !cartVariantIds.contains(candidate.id()))
+                .map(SuggestedAccessoryResponse::fromCatalog)
+                .toList();
+    }
+
+    private CartItemResponse enrichCartItem(CartItem item, Map<Long, CatalogVariantResponse> variantsById) {
+        CatalogVariantResponse variant = variantsById.get(item.getVariantId());
+
+        if (variant == null) {
+            return CartItemResponse.builder()
+                    .id(item.getId())
+                    .variantId(item.getVariantId())
+                    .quantity(item.getQuantity())
+                    .productName(null)
+                    .unitPriceExclTax(null)
+                    .vatRate(null)
+                    .available(false)
+                    .imageUrl(null)
+                    .status("UNAVAILABLE")
+                    .build();
+        }
+
+        return CartItemResponse.builder()
+                .id(item.getId())
+                .variantId(item.getVariantId())
+                .quantity(item.getQuantity())
+                .productName(variant.designation())
+                .unitPriceExclTax(variant.unitPriceExclTax())
+                .vatRate(variant.vatRate())
+                .available(variant.available())
+                .imageUrl(variant.imageUrl())
+                .status(variant.available() ? "AVAILABLE" : "UNAVAILABLE")
+                .build();
+    }
+
+    public CartResponse addItem(Long userId, String sessionToken, AddCartItemRequest request) {
+        Cart cart = getOrCreateCart(userId, sessionToken);
+
+        Optional<CartItem> existingItem = cart.getItems().stream()
+                .filter(item -> item.getVariantId().equals(request.getVariantId()))
+                .findFirst();
+
+        if (existingItem.isPresent()) {
+            CartItem item = existingItem.get();
+            item.setQuantity(item.getQuantity() + request.getQuantity());
+        } else {
+            CartItem newItem = new CartItem(cart, request.getVariantId(), request.getQuantity());
+            cart.addItem(newItem);
+        }
+
+        Cart savedCart = cartRepository.save(cart);
+        return buildEnrichedCartResponse(savedCart);
+    }
+
+
+    public CartResponse updateItemQuantity(Long userId, String sessionToken, Long itemId, int newQuantity) {
+        Cart cart = getOrCreateCart(userId, sessionToken);
+
+        CartItem item = cart.getItems().stream()
+                .filter(i -> i.getId().equals(itemId))
+                .findFirst()
+                .orElseThrow(() -> new ResourceNotFoundException("Cart item not found, id: " + itemId));
+
+        if (newQuantity <= 0) {
+            cart.removeItem(item);
+        } else {
+            item.setQuantity(newQuantity);
+        }
+
+        Cart savedCart = cartRepository.save(cart);
+        return buildEnrichedCartResponse(savedCart);
+    }
+
+
+    public CartResponse removeItem(Long userId, String sessionToken, Long itemId) {
+        Cart cart = getOrCreateCart(userId, sessionToken);
+
+        CartItem item = cart.getItems().stream()
+                .filter(i -> i.getId().equals(itemId))
+                .findFirst()
+                .orElseThrow(() -> new ResourceNotFoundException("Cart item not found, id: " + itemId));
+
+        cart.removeItem(item);
+
+        Cart savedCart = cartRepository.save(cart);
+        return buildEnrichedCartResponse(savedCart);
+    }
+
+
+    public CartResponse clearCart(Long userId, String sessionToken) {
+        Cart cart = getOrCreateCart(userId, sessionToken);
+
+        cart.clearItems();
+
+        Cart savedCart = cartRepository.save(cart);
+        return buildEnrichedCartResponse(savedCart);
+    }
+
+
+    public CartResponse mergeCart(Long userId, String sessionToken){
+        if (userId == null) {
+            throw new IllegalArgumentException("User ID must not be null for cart merge");
+        }
+        
+        if(sessionToken == null || sessionToken.trim().isEmpty()){
+            return getCart(userId, null);
+        }
+
+        Optional<Cart> guestCartOpt = cartRepository.findBySessionTokenWithItems(sessionToken.trim());
+
+        if(guestCartOpt.isEmpty()){
+            return getCart(userId, null);
+        }
+
+        Cart guestCart = guestCartOpt.get();
+        Cart userCart = getOrCreateCart(userId, null);
+
+
+        for(CartItem guestItem : guestCart.getItems()){
+
+            Optional<CartItem> existingUserItem = userCart.getItems().stream().filter(
+                ui -> ui.getVariantId().equals(guestItem.getVariantId())
+            ).findFirst();
+
+            if(existingUserItem.isPresent()){
+
+                CartItem userItem = existingUserItem.get();
+                userItem.setQuantity(userItem.getQuantity()+ guestItem.getQuantity());
+            }else{
+                userCart.addItem(new CartItem(userCart, guestItem.getVariantId(), guestItem.getQuantity()));
+            }
+        }
+
+        cartRepository.delete(guestCart);
+        Cart savedCart = cartRepository.save(userCart);
+
+        return buildEnrichedCartResponse(savedCart);
+    }
+
+}
