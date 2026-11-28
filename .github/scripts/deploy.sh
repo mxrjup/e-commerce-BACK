@@ -8,9 +8,11 @@
 #    toucher au cluster : jamais de deploiement a moitie.
 # 2. Deploie chaque service sur le digest de son image (tag X.Y.Z@sha256:...),
 #    pas sur un tag qui pourrait bouger.
-# 3. Attend chaque rollout. Si un seul echoue, TOUS les services de ce
-#    deploiement reviennent a leur version precedente (rollout undo), et le
-#    script echoue.
+# 3. Met a jour les services UN PAR UN, en attendant chaque rollout avant de
+#    passer au suivant : le quota du namespace n'a de marge que pour un pod
+#    de plus a la fois (maxSurge: 1). Si un seul echoue, TOUS les services
+#    deja mis a jour reviennent a leur version precedente (rollout undo), et
+#    le script echoue.
 # 4. Enregistre la version deployee dans le ConfigMap « ecommerce-release ».
 #
 # Variables :
@@ -99,9 +101,8 @@ for service in "${services[@]}"; do
     # version de chaque revision. Avant, elle ecraserait celle de l'ancienne.
     kubectl annotate deployment/"$service" --overwrite \
         kubernetes.io/change-cause="deploy $version" >/dev/null
-done
-
-for service in "${services[@]}"; do
+    # Un service a la fois : mettre a jour les huit ensemble creerait huit
+    # pods de plus, au-dela du quota, et les rollouts resteraient bloques.
     if ! kubectl rollout status deployment/"$service" --timeout="$timeout"; then
         rollback
     fi

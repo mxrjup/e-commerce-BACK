@@ -1093,8 +1093,10 @@ supprime jamais.
    avant de toucher au cluster ;
 3. il passe chaque service sur le **digest** de son image
    (`X.Y.Z@sha256:…`), pas sur un tag ;
-4. il attend chaque rollout. **Si un seul échoue, tous les services de ce
-   déploiement reviennent à leur version précédente**, et le workflow échoue ;
+4. il met à jour les services **un par un**, en attendant chaque rollout :
+   le quota du namespace n'a de marge que pour un pod de plus à la fois. **Si
+   un seul échoue, tous les services déjà mis à jour reviennent à leur
+   version précédente**, et le workflow échoue ;
 5. il enregistre la version déployée dans le ConfigMap `ecommerce-release`.
 
 Testé sur un cluster k3s aux contraintes de l'école, avec une version dont
