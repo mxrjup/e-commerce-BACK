@@ -84,8 +84,12 @@ public class UserService {
 
     @Transactional(readOnly = true)
     public Page<UserAdminResponseDto> getUsers(String search, Pageable pageable) {
-        return userRepository.searchUsers(search, pageable)
-                .map(this::mapToAdminDto);
+        // PostgreSQL cannot type a null query parameter, so the unfiltered
+        // listing must not go through the search query.
+        Page<User> users = (search == null || search.isBlank())
+                ? userRepository.findAll(pageable)
+                : userRepository.searchUsers(search.trim(), pageable);
+        return users.map(this::mapToAdminDto);
     }
 
     private UserAdminResponseDto mapToAdminDto(User user) {
